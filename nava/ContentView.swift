@@ -3,6 +3,8 @@ import SwiftUI
 struct MainTabView: View {
     @EnvironmentObject var auth: AuthManager
     @State private var selectedTab = 0
+    @State private var likesCount = 0
+    @State private var unreadChats = 0
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -22,6 +24,7 @@ struct MainTabView: View {
                 Image(systemName: "heart.fill")
                 Text("Likes")
             }
+            .badge(likesCount)
             .tag(1)
 
             NavigationStack {
@@ -31,6 +34,7 @@ struct MainTabView: View {
                 Image(systemName: "message.fill")
                 Text("Chat")
             }
+            .badge(unreadChats)
             .tag(2)
 
             NavigationStack {
@@ -52,5 +56,33 @@ struct MainTabView: View {
             .tag(4)
         }
         .tint(AppColors.primary)
+        .task { await fetchBadgeCounts() }
+        .onChange(of: selectedTab) { _, tab in
+            // Clear badge when visiting the tab
+            if tab == 1 { likesCount = 0 }
+            if tab == 2 { unreadChats = 0 }
+        }
+    }
+    
+    private func fetchBadgeCounts() async {
+        do {
+            let query = """
+            query {
+                matches {
+                    id
+                    isMutual
+                }
+            }
+            """
+            let result: [String: Any] = try await APIService.shared.graphQL(query: query)
+            if let matchList = result["matches"] as? [[String: Any]] {
+                let nonMutual = matchList.filter { ($0["isMutual"] as? Bool) == false }
+                let mutual = matchList.filter { ($0["isMutual"] as? Bool) == true }
+                likesCount = nonMutual.count
+                unreadChats = mutual.count > 0 ? mutual.count : 0
+            }
+        } catch {
+            // Keep zeros
+        }
     }
 }

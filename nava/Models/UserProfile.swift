@@ -118,19 +118,64 @@ struct Country: Identifiable, Equatable {
     let maxLength: Int
 }
 
-// MARK: - Premium Plan
-struct PremiumPlan: Identifiable {
-    let id: String
-    let name: String
-    let price: Double
-    var originalPrice: Double?
-    let duration: String
-    var perMonth: String?
-    var isPopular: Bool
-    var isBestValue: Bool
-    let features: [String]
-    let icon: String
-    let gradientColors: [Color]
+// MARK: - Premium Tier (bridges UI config to StoreKit product IDs)
+enum PremiumTier: String, CaseIterable, Identifiable {
+    case gold, platinum, ultra
+    var id: String { rawValue }
+    
+    var displayName: String {
+        switch self {
+        case .gold: return "Gold"
+        case .platinum: return "Platinum"
+        case .ultra: return "Ultra"
+        }
+    }
+    
+    var storeProductID: String {
+        switch self {
+        case .gold: return StoreProductID.goldMonthly.rawValue
+        case .platinum: return StoreProductID.platinumMonthly.rawValue
+        case .ultra: return StoreProductID.ultraMonthly.rawValue
+        }
+    }
+    
+    var icon: String {
+        switch self {
+        case .gold: return "star.fill"
+        case .platinum: return "crown.fill"
+        case .ultra: return "diamond.fill"
+        }
+    }
+    
+    var badge: String? {
+        switch self {
+        case .platinum: return "POPULAR"
+        case .ultra: return "BEST VALUE"
+        default: return nil
+        }
+    }
+    
+    var accentColor: Color {
+        switch self {
+        case .gold: return Color(hex: "D4AF37")
+        case .platinum: return Color(hex: "845EC2")
+        case .ultra: return Color(hex: "4ECDC4")
+        }
+    }
+    
+    var features: [String] {
+        switch self {
+        case .gold:
+            return ["Unlimited likes", "See who likes you", "5 Super Likes/day",
+                    "1 free Boost/month", "Advanced filters"]
+        case .platinum:
+            return ["All Gold features", "Priority matching", "Read receipts",
+                    "Weekly boost included", "Undo last swipe"]
+        case .ultra:
+            return ["All Platinum features", "Priority support", "Exclusive events",
+                    "See all likes instantly", "Unlimited Super Likes"]
+        }
+    }
 }
 
 // MARK: - Demo Data
@@ -209,27 +254,4 @@ extension LikedProfile {
     ]
 }
 
-extension PremiumPlan {
-    static let all: [PremiumPlan] = [
-        PremiumPlan(id: "boost", name: "Boost", price: 2.99, duration: "1 hour",
-                    isPopular: false, isBestValue: false,
-                    features: ["Priority in discover", "See who viewed you"],
-                    icon: "bolt.fill", gradientColors: [Color(hex: "FF6B6B"), Color(hex: "FF8E53")]),
-        PremiumPlan(id: "daily", name: "Day Pass", price: 4.99, duration: "24 hours",
-                    isPopular: false, isBestValue: false,
-                    features: ["Unlimited likes", "See who likes you", "Priority matching"],
-                    icon: "sun.max.fill", gradientColors: [Color(hex: "F4A261"), Color(hex: "E9C46A")]),
-        PremiumPlan(id: "weekly", name: "Weekly", price: 9.99, duration: "7 days", perMonth: "$9.99/week",
-                    isPopular: false, isBestValue: false,
-                    features: ["All Day Pass features", "Advanced filters", "Read receipts"],
-                    icon: "calendar", gradientColors: [Color(hex: "2A9D8F"), Color(hex: "48CAE4")]),
-        PremiumPlan(id: "monthly", name: "Monthly", price: 19.99, duration: "30 days", perMonth: "$19.99/mo",
-                    isPopular: true, isBestValue: false,
-                    features: ["All Weekly features", "Profile boost weekly", "5 Super Likes/day", "Undo last swipe"],
-                    icon: "star.fill", gradientColors: [Color(hex: "E85D4C"), Color(hex: "F4A261")]),
-        PremiumPlan(id: "ultra", name: "Ultra", price: 49.99, originalPrice: 59.97, duration: "3 months", perMonth: "$16.66/mo",
-                    isPopular: false, isBestValue: true,
-                    features: ["All Monthly features", "Priority support", "Exclusive events", "See all who liked you"],
-                    icon: "diamond.fill", gradientColors: [Color(hex: "D4AF37"), Color(hex: "FFD700")]),
-    ]
-}
+

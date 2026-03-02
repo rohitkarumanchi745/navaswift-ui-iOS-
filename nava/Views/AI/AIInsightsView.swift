@@ -5,8 +5,8 @@ struct AIInsightsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("AI Insights")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundColor(Color(hex: "1F1F1F"))
+                    .font(AppTypography.h2)
+                    .foregroundColor(AppColors.textPrimary)
                 
                 infoCard(icon: "brain.head.profile", title: "Compatibility Scores", color: AppColors.accent) {
                     Text("Our AI analyzes shared interests, communication patterns, and behavioral signals to generate compatibility scores for each potential match.")
@@ -44,7 +44,7 @@ struct AIInsightsView: View {
             }
             .padding(24)
         }
-        .background(Color(hex: "F3D9D1"))
+        .background(AppColors.peachBackground)
         .navigationTitle("AI Insights")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -61,12 +61,12 @@ struct AIInsightsView: View {
                 
                 Text(title)
                     .font(.headline)
-                    .foregroundColor(Color(hex: "1F1F1F"))
+                    .foregroundColor(AppColors.textPrimary)
             }
             
             description()
                 .font(.subheadline)
-                .foregroundColor(Color(hex: "333333"))
+                .foregroundColor(AppColors.textSecondary)
                 .lineSpacing(4)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -82,18 +82,18 @@ struct AIExplanationView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 Text("How the AI Works")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundColor(Color(hex: "1F1F1F"))
+                    .font(AppTypography.h2)
+                    .foregroundColor(AppColors.textPrimary)
                 
                 explanationCard {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Transparency First")
                             .font(.headline)
-                            .foregroundColor(Color(hex: "1F1F1F"))
+                            .foregroundColor(AppColors.textPrimary)
                         
                         Text("At NAVA, we believe in transparent AI. Our matching algorithms consider multiple factors to suggest compatible matches while respecting your preferences and privacy.")
                             .font(.subheadline)
-                            .foregroundColor(Color(hex: "333333"))
+                            .foregroundColor(AppColors.textSecondary)
                             .lineSpacing(4)
                     }
                 }
@@ -102,7 +102,7 @@ struct AIExplanationView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("What We Analyze")
                             .font(.headline)
-                            .foregroundColor(Color(hex: "1F1F1F"))
+                            .foregroundColor(AppColors.textPrimary)
                         
                         factorRow("Shared interests and hobbies")
                         factorRow("Communication style compatibility")
@@ -116,7 +116,7 @@ struct AIExplanationView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("What We Don't Do")
                             .font(.headline)
-                            .foregroundColor(Color(hex: "1F1F1F"))
+                            .foregroundColor(AppColors.textPrimary)
                         
                         factorRow("We never sell your personal data")
                         factorRow("We don't discriminate based on race or ethnicity")
@@ -127,7 +127,7 @@ struct AIExplanationView: View {
             }
             .padding(24)
         }
-        .background(Color(hex: "F3D9D1"))
+        .background(AppColors.peachBackground)
         .navigationTitle("How AI Works")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -146,12 +146,12 @@ struct AIExplanationView: View {
     private func factorRow(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(Color(hex: "5F7A66"))
+                .foregroundColor(AppColors.verifyGreen)
                 .font(.subheadline)
             
             Text(text)
                 .font(.subheadline)
-                .foregroundColor(Color(hex: "333333"))
+                .foregroundColor(AppColors.textSecondary)
                 .lineSpacing(4)
         }
     }

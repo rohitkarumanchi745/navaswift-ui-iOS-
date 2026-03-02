@@ -145,16 +145,49 @@ struct SelfieVerificationView: View {
     }
     
     private func verifySelfie() {
-        guard selfieImage != nil else { return }
+        guard let image = selfieImage else { return }
         isSubmitting = true
         
         Task {
             do {
-                // In production, this would upload the selfie via gqlUpload
-                try await Task.sleep(for: .seconds(2))
-                alertMessage = "Verification successful! Your profile now has a verified badge."
+                #if canImport(UIKit)
+                guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+                    alertMessage = "Could not process image."
+                    isSubmitting = false
+                    showAlert = true
+                    return
+                }
+                #elseif canImport(AppKit)
+                guard let tiffData = image.tiffRepresentation,
+                      let bitmap = NSBitmapImageRep(data: tiffData),
+                      let imageData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else {
+                    alertMessage = "Could not process image."
+                    isSubmitting = false
+                    showAlert = true
+                    return
+                }
+                #endif
+                
+                struct VerifyResponse: Codable {
+                    let verified: Bool?
+                    let message: String?
+                    let confidence: Double?
+                }
+                let result: VerifyResponse = try await APIService.shared.multipartUpload(
+                    path: "/verify/selfie",
+                    fileData: imageData,
+                    fileName: "selfie.jpg",
+                    mimeType: "image/jpeg",
+                    fileField: "selfie"
+                )
+                await auth.refreshProfile()
+                if result.verified == true {
+                    alertMessage = "Verification successful! Your profile now has a verified badge."
+                } else {
+                    alertMessage = result.message ?? "Verification could not be completed. Please try again with a clearer photo."
+                }
             } catch {
-                alertMessage = "Verification failed. Please try again."
+                alertMessage = "Verification failed: \(error.localizedDescription)"
             }
             isSubmitting = false
             showAlert = true

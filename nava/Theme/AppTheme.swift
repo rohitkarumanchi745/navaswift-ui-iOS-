@@ -48,6 +48,22 @@ struct AppColors {
     static let gold = Color(hex: "FFD700")
     static let premium = Color(hex: "845EC2")
     static let verified = Color(hex: "4ECDC4")
+    
+    // Surfaces
+    static let background = Color(hex: "F8F9FA")
+    static let cardBackground = Color.white
+    static let inputBackground = Color(hex: "F8FAFC")
+    
+    // Edit Profile accent (indigo)
+    static let editAccent = Color(hex: "667EEA")
+    static let editAccentLight = Color(hex: "667EEA").opacity(0.1)
+    
+    // Verification green
+    static let verifyGreen = Color(hex: "5F7A66")
+    static let verifyGreenLight = Color(hex: "5F7A66").opacity(0.1)
+    
+    // Verification page background
+    static let peachBackground = Color(hex: "F3D9D1")
 }
 
 // MARK: - Adaptive Colors (Light/Dark)

@@ -23,6 +23,11 @@ struct StudentVerificationView: View {
         ("person.2.fill", "Connect with college students"),
     ]
     
+    private var isValidEduEmail: Bool {
+        let pattern = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.edu$"#
+        return email.range(of: pattern, options: .regularExpression) != nil
+    }
+    
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
@@ -52,10 +57,9 @@ struct StudentVerificationView: View {
         } message: {
             Text(alertMessage)
         }
-        .onAppear {
-            if auth.user?.isStudentVerified == true {
-                step = .verified
-            }
+        .task {
+            // Check backend status first
+            await loadStudentStatus()
         }
     }
     
@@ -144,8 +148,14 @@ struct StudentVerificationView: View {
                 .background(Color(hex: "5F7A66"))
                 .clipShape(RoundedRectangle(cornerRadius: 18))
             }
-            .disabled(email.isEmpty || isSubmitting)
-            .opacity(email.isEmpty ? 0.6 : 1)
+            .disabled(!isValidEduEmail || isSubmitting)
+            .opacity(!isValidEduEmail ? 0.6 : 1)
+            
+            if !email.isEmpty && !isValidEduEmail {
+                Text("Please enter a valid .edu email address")
+                    .font(.caption)
+                    .foregroundColor(AppColors.error)
+            }
             
             // Benefits list
             Divider().padding(.top, 8)
@@ -265,6 +275,29 @@ struct StudentVerificationView: View {
     
     // MARK: - API
     
+    private func loadStudentStatus() async {
+        // Check local auth first
+        if auth.user?.isStudentVerified == true {
+            step = .verified
+            return
+        }
+        // Check backend status
+        do {
+            struct StatusResponse: Codable {
+                let verified: Bool?
+                let university_name: String?
+                let email: String?
+            }
+            let result: StatusResponse = try await APIService.shared.get(path: "/student/status")
+            if result.verified == true {
+                universityName = result.university_name ?? ""
+                step = .verified
+            }
+        } catch {
+            // Not verified or endpoint not available — stay on email step
+        }
+    }
+    
     private func sendVerificationCode() {
         isSubmitting = true
         Task {
@@ -294,9 +327,13 @@ struct StudentVerificationView: View {
             do {
                 let otpString = otp.joined()
                 struct OtpResponse: Codable { let success: Bool? }
+                var body: [String: Any] = ["email": email, "otp": otpString]
+                if !universityName.isEmpty {
+                    body["university_name"] = universityName
+                }
                 let _: OtpResponse = try await APIService.shared.post(
                     path: "/student/verify-otp",
-                    body: ["email": email, "otp": otpString]
+                    body: body
                 )
                 await auth.refreshProfile()
                 withAnimation { step = .verified }

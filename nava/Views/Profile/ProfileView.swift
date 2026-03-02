@@ -4,6 +4,7 @@ import SwiftUI
 struct ProfileView: View {
     @EnvironmentObject var auth: AuthManager
     @EnvironmentObject var locationManager: LocationManager
+    @EnvironmentObject var storeKit: StoreKitManager
     @State private var activeSection: ProfileSection = .connections
     @State private var scrollOffset: CGFloat = 0
     @State private var showSettings = false
@@ -13,6 +14,7 @@ struct ProfileView: View {
     @State private var showSignOutAlert = false
     @State private var showVoiceIntro = false
     @State private var showStudentVerification = false
+    @State private var showAIInsights = false
     @State private var animateStats = false
     
     enum ProfileSection: String, CaseIterable {
@@ -20,21 +22,14 @@ struct ProfileView: View {
         case activity = "Activity"
     }
     
-    // Demo data
-    private let likedProfiles: [LikedProfile] = LikedProfile.demos
-    
-    private let demoMessages: [(id: String, matchId: String, name: String, photo: String, lastMessage: String, timestamp: String, unread: Int, isOnline: Bool)] = [
-        ("m1", "match1", "Ananya", "https://i.pravatar.cc/150?img=1", "Hey! How are you?", "2m ago", 2, true),
-        ("m2", "match2", "Priya", "https://i.pravatar.cc/150?img=5", "That sounds amazing!", "1h ago", 0, false),
-        ("m3", "match3", "Kavya", "https://i.pravatar.cc/150?img=9", "See you there 😊", "3h ago", 1, true),
-    ]
-    
-    private let demoActivities: [(icon: String, text: String, time: String, color: Color)] = [
-        ("heart.fill", "Someone liked your profile", "2h ago", .red),
-        ("star.fill", "You received a Super Like", "5h ago", .blue),
-        ("bolt.fill", "Your profile was boosted", "1d ago", .orange),
-        ("person.2.fill", "New match with Priya!", "2d ago", AppColors.primary),
-    ]
+    // Live data from backend
+    @State private var likedProfiles: [LikedProfile] = []
+    @State private var recentMatches: [MatchProfile] = []
+    @State private var statsLikes = 0
+    @State private var statsMatches = 0
+    @State private var statsChats = 0
+    @State private var isLoadingStats = true
+    @State private var profileError: String?
     
     var body: some View {
         ScrollView {
@@ -42,6 +37,28 @@ struct ProfileView: View {
                 heroSection
                 statsRow
                     .padding(.top, -20)
+                
+                if let error = profileError {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundColor(AppColors.warning)
+                        Text("Could not load stats: \(error)")
+                            .font(.caption)
+                            .foregroundColor(AppColors.textSecondary)
+                        Spacer()
+                        Button("Retry") {
+                            profileError = nil
+                            Task { await loadProfileData() }
+                        }
+                        .font(.caption.bold())
+                        .foregroundColor(AppColors.primary)
+                    }
+                    .padding(12)
+                    .background(AppColors.warning.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                }
                 
                 if profileCompletion < 100 {
                     completionCard
@@ -69,6 +86,7 @@ struct ProfileView: View {
         }
         .background(Color(hex: "F8F9FA"))
         .ignoresSafeArea(edges: .top)
+        .task { await loadProfileData() }
         .onAppear {
             withAnimation(.spring(response: 0.6).delay(0.3)) {
                 animateStats = true
@@ -99,6 +117,9 @@ struct ProfileView: View {
         }
         .sheet(isPresented: $showStudentVerification) {
             NavigationStack { StudentVerificationView() }
+        }
+        .sheet(isPresented: $showAIInsights) {
+            NavigationStack { AIInsightsView() }
         }
     }
     
@@ -236,19 +257,19 @@ struct ProfileView: View {
     // MARK: - Stats Row
     private var statsRow: some View {
         HStack(spacing: 0) {
-            statItem(value: "128", label: "Likes", delay: 0)
+            statItem(value: "\(statsLikes)", label: "Likes", delay: 0)
             
             Divider()
                 .frame(height: 30)
                 .background(AppColors.border)
             
-            statItem(value: "24", label: "Matches", delay: 0.1)
+            statItem(value: "\(statsMatches)", label: "Matches", delay: 0.1)
             
             Divider()
                 .frame(height: 30)
                 .background(AppColors.border)
             
-            statItem(value: "12", label: "Chats", delay: 0.2)
+            statItem(value: "\(statsChats)", label: "Chats", delay: 0.2)
         }
         .padding(.vertical, 16)
         .background(.white)
@@ -323,19 +344,29 @@ struct ProfileView: View {
     
     // MARK: - Quick Actions
     private var quickActions: some View {
-        HStack(spacing: 12) {
-            quickActionButton(icon: "slider.horizontal.3", label: "Preferences", color: AppColors.secondary) {
-                showPreferences = true
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                quickActionButton(icon: "slider.horizontal.3", label: "Preferences", color: AppColors.secondary) {
+                    showPreferences = true
+                }
+                quickActionButton(icon: "brain.head.profile", label: "AI Insights", color: AppColors.accent) {
+                    showAIInsights = true
+                }
+                quickActionButton(icon: "mic.fill", label: "Voice Intro", color: Color(hex: "F4A261")) {
+                    showVoiceIntro = true
+                }
+                quickActionButton(icon: "graduationcap.fill", label: "Student", color: Color(hex: "D4AF37")) {
+                    showStudentVerification = true
+                }
+                if storeKit.isPremium {
+                    quickActionButton(icon: "crown.fill", label: "Active", color: Color(hex: "D4AF37")) {}
+                } else {
+                    quickActionButton(icon: "crown.fill", label: "Premium", color: AppColors.accent) {
+                        showPremium = true
+                    }
+                }
             }
-            quickActionButton(icon: "mic.fill", label: "Voice Intro", color: Color(hex: "F4A261")) {
-                showVoiceIntro = true
-            }
-            quickActionButton(icon: "graduationcap.fill", label: "Student", color: Color(hex: "D4AF37")) {
-                showStudentVerification = true
-            }
-            quickActionButton(icon: "crown.fill", label: "Premium", color: AppColors.accent) {
-                showPremium = true
-            }
+            .padding(.horizontal, 4)
         }
     }
     
@@ -416,8 +447,15 @@ struct ProfileView: View {
                     .font(.headline)
                     .padding(.horizontal, 16)
                 
-                ForEach(demoMessages, id: \.id) { msg in
-                    messageRow(msg)
+                if recentMatches.isEmpty {
+                    Text("No conversations yet")
+                        .font(.subheadline)
+                        .foregroundColor(AppColors.textSecondary)
+                        .padding(.horizontal, 16)
+                } else {
+                    ForEach(recentMatches.prefix(3)) { match in
+                        matchMessageRow(match)
+                    }
                 }
             }
         }
@@ -459,10 +497,10 @@ struct ProfileView: View {
         }
     }
     
-    private func messageRow(_ msg: (id: String, matchId: String, name: String, photo: String, lastMessage: String, timestamp: String, unread: Int, isOnline: Bool)) -> some View {
+    private func matchMessageRow(_ match: MatchProfile) -> some View {
         HStack(spacing: 12) {
             ZStack(alignment: .bottomTrailing) {
-                AsyncImage(url: URL(string: msg.photo)) { image in
+                AsyncImage(url: URL(string: match.photo)) { image in
                     image.resizable().scaledToFill()
                 } placeholder: {
                     Circle().fill(Color.gray.opacity(0.2))
@@ -470,7 +508,7 @@ struct ProfileView: View {
                 .frame(width: 52, height: 52)
                 .clipShape(Circle())
                 
-                if msg.isOnline {
+                if match.isOnline {
                     Circle()
                         .fill(AppColors.online)
                         .frame(width: 14, height: 14)
@@ -480,27 +518,27 @@ struct ProfileView: View {
             
             VStack(alignment: .leading, spacing: 4) {
                 HStack {
-                    Text(msg.name)
+                    Text(match.name)
                         .font(.subheadline.bold())
                         .foregroundColor(AppColors.textPrimary)
                     
                     Spacer()
                     
-                    Text(msg.timestamp)
+                    Text(match.timestamp ?? "")
                         .font(.caption2)
                         .foregroundColor(AppColors.textMuted)
                 }
                 
                 HStack {
-                    Text(msg.lastMessage)
+                    Text(match.lastMessage ?? "Say hi!")
                         .font(.caption)
                         .foregroundColor(AppColors.textSecondary)
                         .lineLimit(1)
                     
                     Spacer()
                     
-                    if msg.unread > 0 {
-                        Text("\(msg.unread)")
+                    if match.unreadCount > 0 {
+                        Text("\(match.unreadCount)")
                             .font(.caption2.bold())
                             .foregroundColor(.white)
                             .frame(width: 20, height: 20)
@@ -517,35 +555,64 @@ struct ProfileView: View {
     // MARK: - Activity Section
     private var activitySection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Activity feed
+            // Activity feed from real matches
             VStack(alignment: .leading, spacing: 12) {
                 Text("Recent Activity")
                     .font(.headline)
                     .padding(.horizontal, 16)
                 
-                ForEach(demoActivities, id: \.text) { activity in
-                    HStack(spacing: 12) {
-                        Image(systemName: activity.icon)
-                            .font(.body)
-                            .foregroundColor(.white)
-                            .frame(width: 36, height: 36)
-                            .background(activity.color)
-                            .clipShape(Circle())
-                        
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(activity.text)
-                                .font(.subheadline)
-                                .foregroundColor(AppColors.textPrimary)
+                if recentMatches.isEmpty && likedProfiles.isEmpty {
+                    Text("No activity yet. Start swiping to see activity here!")
+                        .font(.subheadline)
+                        .foregroundColor(AppColors.textSecondary)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                } else {
+                    ForEach(recentMatches.prefix(3)) { match in
+                        HStack(spacing: 12) {
+                            Image(systemName: "person.2.fill")
+                                .font(.body)
+                                .foregroundColor(.white)
+                                .frame(width: 36, height: 36)
+                                .background(AppColors.primary)
+                                .clipShape(Circle())
                             
-                            Text(activity.time)
-                                .font(.caption2)
-                                .foregroundColor(AppColors.textMuted)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Matched with \(match.name)")
+                                    .font(.subheadline)
+                                    .foregroundColor(AppColors.textPrimary)
+                                Text(match.timestamp ?? "")
+                                    .font(.caption2)
+                                    .foregroundColor(AppColors.textMuted)
+                            }
+                            Spacer()
                         }
-                        
-                        Spacer()
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 4)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 4)
+                    
+                    if statsLikes > 0 {
+                        HStack(spacing: 12) {
+                            Image(systemName: "heart.fill")
+                                .font(.body)
+                                .foregroundColor(.white)
+                                .frame(width: 36, height: 36)
+                                .background(.red)
+                                .clipShape(Circle())
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(statsLikes) people liked your profile")
+                                    .font(.subheadline)
+                                    .foregroundColor(AppColors.textPrimary)
+                                Text("recently")
+                                    .font(.caption2)
+                                    .foregroundColor(AppColors.textMuted)
+                            }
+                            Spacer()
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 4)
+                    }
                 }
             }
             .padding(.top, 16)
@@ -570,6 +637,78 @@ struct ProfileView: View {
             .shadow(color: .black.opacity(0.06), radius: 6, y: 2)
             .padding(.horizontal, 16)
         }
+    }
+    
+    // MARK: - Data Loading
+    private func loadProfileData() async {
+        isLoadingStats = true
+        do {
+            let query = """
+            query {
+                matches {
+                    id
+                    partner { id name age photos }
+                    isMutual
+                    matchedAt
+                }
+            }
+            """
+            let result: [String: Any] = try await APIService.shared.graphQL(query: query)
+            if let matchList = result["matches"] as? [[String: Any]] {
+                var likes: [LikedProfile] = []
+                var convos: [MatchProfile] = []
+                
+                for m in matchList {
+                    let partner = m["partner"] as? [String: Any] ?? [:]
+                    let photos = partner["photos"] as? [String]
+                    let isMutual = m["isMutual"] as? Bool ?? false
+                    let ts = formatTimestamp(m["matchedAt"] as? String)
+                    
+                    if isMutual {
+                        convos.append(MatchProfile(
+                            id: "\(partner["id"] ?? "")",
+                            matchId: "\(m["id"] ?? "")",
+                            name: partner["name"] as? String ?? "",
+                            age: partner["age"] as? Int ?? 0,
+                            photo: photos?.first ?? "",
+                            lastMessage: nil,
+                            timestamp: ts,
+                            unreadCount: 0,
+                            isOnline: false,
+                            isMutual: true
+                        ))
+                    } else {
+                        likes.append(LikedProfile(
+                            id: "\(partner["id"] ?? "")",
+                            name: partner["name"] as? String ?? "",
+                            age: partner["age"] as? Int ?? 0,
+                            photo: photos?.first ?? "",
+                            type: .swipe,
+                            likedAt: ts ?? ""
+                        ))
+                    }
+                }
+                
+                likedProfiles = likes
+                recentMatches = convos
+                statsLikes = likes.count
+                statsMatches = matchList.count
+                statsChats = convos.count
+            }
+        } catch {
+            profileError = error.localizedDescription
+        }
+        isLoadingStats = false
+    }
+    
+    private func formatTimestamp(_ iso: String?) -> String? {
+        guard let iso else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let date = formatter.date(from: iso) else { return nil }
+        let rel = RelativeDateTimeFormatter()
+        rel.unitsStyle = .abbreviated
+        return rel.localizedString(for: date, relativeTo: Date())
     }
     
     // MARK: - Footer
@@ -600,5 +739,6 @@ struct ProfileView: View {
         ProfileView()
             .environmentObject(AuthManager())
             .environmentObject(LocationManager())
+            .environmentObject(StoreKitManager())
     }
 }

@@ -33,10 +33,29 @@ class LocationManager: NSObject, ObservableObject {
 
     private func reverseGeocode(_ location: CLLocation) {
         geocoder.reverseGeocodeLocation(location) { [weak self] placemarks, _ in
+            let placemark = placemarks?.first
             Task { @MainActor in
-                self?.city = placemarks?.first?.locality ?? "Unknown"
+                self?.city = placemark?.locality ?? "Unknown"
                 self?.isLoading = false
+                self?.sendToBackend(location, placemark: placemark)
             }
+        }
+    }
+
+    private func sendToBackend(_ location: CLLocation, placemark: CLPlacemark?) {
+        Task {
+            struct LocationResponse: Codable { let success: Bool? }
+            let _: LocationResponse? = try? await APIService.shared.post(
+                path: "/location/update",
+                body: [
+                    "latitude": location.coordinate.latitude,
+                    "longitude": location.coordinate.longitude,
+                    "accuracy": location.horizontalAccuracy,
+                    "city": placemark?.locality ?? "",
+                    "state": placemark?.administrativeArea ?? "",
+                    "country": placemark?.country ?? "",
+                ]
+            )
         }
     }
 }

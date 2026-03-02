@@ -78,7 +78,7 @@ struct EditProfileView: View {
                             TextField("Your name", text: $name)
                                 .textFieldStyle(.plain)
                                 .padding(16)
-                                .background(Color(hex: "F8FAFC"))
+                                .background(AppColors.inputBackground)
                                 .clipShape(RoundedRectangle(cornerRadius: 14))
                         }
                         
@@ -90,10 +90,10 @@ struct EditProfileView: View {
                                     } label: {
                                         Text(option)
                                             .font(.subheadline.bold())
-                                            .foregroundColor(gender == option.lowercased() ? .white : Color(hex: "64748B"))
+                                            .foregroundColor(gender == option.lowercased() ? .white : AppColors.textSecondary)
                                             .frame(maxWidth: .infinity)
                                             .padding(.vertical, 14)
-                                            .background(gender == option.lowercased() ? Color(hex: "667EEA") : Color(hex: "F8FAFC"))
+                                            .background(gender == option.lowercased() ? AppColors.editAccent : AppColors.inputBackground)
                                             .clipShape(RoundedRectangle(cornerRadius: 14))
                                     }
                                 }
@@ -104,7 +104,7 @@ struct EditProfileView: View {
                             TextField("City, State", text: $location)
                                 .textFieldStyle(.plain)
                                 .padding(16)
-                                .background(Color(hex: "F8FAFC"))
+                                .background(AppColors.inputBackground)
                                 .clipShape(RoundedRectangle(cornerRadius: 14))
                         }
                         
@@ -118,7 +118,7 @@ struct EditProfileView: View {
                             .pickerStyle(.menu)
                             .padding(12)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(Color(hex: "F8FAFC"))
+                            .background(AppColors.inputBackground)
                             .clipShape(RoundedRectangle(cornerRadius: 14))
                         }
                     }
@@ -132,7 +132,7 @@ struct EditProfileView: View {
                                 .textFieldStyle(.plain)
                                 .lineLimit(4...8)
                                 .padding(16)
-                                .background(Color(hex: "F8FAFC"))
+                                .background(AppColors.inputBackground)
                                 .clipShape(RoundedRectangle(cornerRadius: 14))
                         }
                         
@@ -178,28 +178,28 @@ struct EditProfileView: View {
                                         HStack(spacing: 14) {
                                             Image(systemName: option.2)
                                                 .font(.title3)
-                                                .foregroundColor(lookingFor == option.0 ? Color(hex: "667EEA") : Color(hex: "94A3B8"))
+                                                .foregroundColor(lookingFor == option.0 ? AppColors.editAccent : AppColors.textMuted)
                                                 .frame(width: 48, height: 48)
-                                                .background(lookingFor == option.0 ? Color(hex: "667EEA").opacity(0.1) : Color(hex: "F8FAFC"))
+                                                .background(lookingFor == option.0 ? AppColors.editAccent.opacity(0.1) : AppColors.inputBackground)
                                                 .clipShape(Circle())
                                             
                                             Text(option.1)
                                                 .font(.subheadline)
-                                                .foregroundColor(Color(hex: "1A1A2E"))
+                                                .foregroundColor(AppColors.textPrimary)
                                             
                                             Spacer()
                                             
                                             if lookingFor == option.0 {
                                                 Image(systemName: "checkmark.circle.fill")
-                                                    .foregroundColor(Color(hex: "667EEA"))
+                                                    .foregroundColor(AppColors.editAccent)
                                             }
                                         }
                                         .padding(12)
-                                        .background(lookingFor == option.0 ? Color(hex: "667EEA").opacity(0.08) : Color(hex: "F8FAFC"))
+                                        .background(lookingFor == option.0 ? AppColors.editAccent.opacity(0.08) : AppColors.inputBackground)
                                         .clipShape(RoundedRectangle(cornerRadius: 14))
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 14)
-                                                .stroke(lookingFor == option.0 ? Color(hex: "667EEA") : .clear, lineWidth: 1.5)
+                                                .stroke(lookingFor == option.0 ? AppColors.editAccent : .clear, lineWidth: 1.5)
                                         )
                                     }
                                 }
@@ -217,13 +217,13 @@ struct EditProfileView: View {
                                 .pickerStyle(.menu)
                                 .padding(12)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color(hex: "F8FAFC"))
+                                .background(AppColors.inputBackground)
                                 .clipShape(RoundedRectangle(cornerRadius: 14))
                                 
                                 TextField("Job title", text: $professionTitle)
                                     .textFieldStyle(.plain)
                                     .padding(16)
-                                    .background(Color(hex: "F8FAFC"))
+                                    .background(AppColors.inputBackground)
                                     .clipShape(RoundedRectangle(cornerRadius: 14))
                             }
                         }
@@ -246,11 +246,11 @@ struct EditProfileView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 18)
                     .background(
-                        LinearGradient(colors: [Color(hex: "667EEA"), Color(hex: "764BA2")],
+                        LinearGradient(colors: [AppColors.editAccent, AppColors.secondary],
                                        startPoint: .leading, endPoint: .trailing)
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .shadow(color: Color(hex: "667EEA").opacity(0.3), radius: 8, y: 4)
+                    .shadow(color: AppColors.editAccent.opacity(0.3), radius: 8, y: 4)
                 }
                 .disabled(isSaving)
                 .padding(.bottom, 32)
@@ -289,7 +289,7 @@ struct EditProfileView: View {
                 // Main photo
                 PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 3, matching: .images) {
                     RoundedRectangle(cornerRadius: 20)
-                        .fill(Color(hex: "F8FAFC"))
+                        .fill(AppColors.inputBackground)
                         .frame(height: 200)
                         .overlay {
                             if let firstPhoto = auth.user?.photos?.first, !firstPhoto.isEmpty {
@@ -310,7 +310,7 @@ struct EditProfileView: View {
                 VStack(spacing: 12) {
                     ForEach(1..<3) { index in
                         RoundedRectangle(cornerRadius: 16)
-                            .fill(Color(hex: "F8FAFC"))
+                            .fill(AppColors.inputBackground)
                             .frame(height: 94)
                             .overlay {
                                 let photos = auth.user?.photos ?? []
@@ -340,17 +340,17 @@ struct EditProfileView: View {
         VStack(spacing: 8) {
             Image(systemName: "camera.fill")
                 .font(.title)
-                .foregroundColor(Color(hex: "667EEA"))
+                .foregroundColor(AppColors.editAccent)
             Text("Add Photo")
                 .font(.caption)
-                .foregroundColor(Color(hex: "64748B"))
+                .foregroundColor(AppColors.textSecondary)
         }
     }
     
     private var smallAddPlaceholder: some View {
         Image(systemName: "plus")
             .font(.title3)
-            .foregroundColor(Color(hex: "94A3B8"))
+            .foregroundColor(AppColors.textMuted)
     }
     
     // MARK: - Helpers
@@ -359,7 +359,7 @@ struct EditProfileView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text(title)
                 .font(.title3.bold())
-                .foregroundColor(Color(hex: "1A1A2E"))
+                .foregroundColor(AppColors.textPrimary)
             
             content()
         }
@@ -373,7 +373,7 @@ struct EditProfileView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.subheadline.bold())
-                .foregroundColor(Color(hex: "64748B"))
+                .foregroundColor(AppColors.textSecondary)
             
             content()
         }
@@ -383,14 +383,14 @@ struct EditProfileView: View {
         Button(action: action) {
             Text(label)
                 .font(.subheadline)
-                .foregroundColor(isSelected ? Color(hex: "667EEA") : Color(hex: "64748B"))
+                .foregroundColor(isSelected ? AppColors.editAccent : AppColors.textSecondary)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                .background(isSelected ? Color(hex: "667EEA").opacity(0.1) : Color(hex: "F8FAFC"))
+                .background(isSelected ? AppColors.editAccent.opacity(0.1) : AppColors.inputBackground)
                 .clipShape(Capsule())
                 .overlay(
                     Capsule()
-                        .stroke(isSelected ? Color(hex: "667EEA") : Color(hex: "E2E8F0"), lineWidth: 1.5)
+                        .stroke(isSelected ? AppColors.editAccent : AppColors.border, lineWidth: 1.5)
                 )
         }
     }

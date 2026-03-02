@@ -139,7 +139,7 @@ struct PreferencesView: View {
                                     .font(.subheadline)
                             }
                         }
-                        .tint(Color(hex: "5F7A66"))
+                        .tint(AppColors.verifyGreen)
                     }
                     
                     // Save Button
@@ -157,7 +157,7 @@ struct PreferencesView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 16)
-                        .background(Color(hex: "5F7A66"))
+                        .background(AppColors.verifyGreen)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                     }
                     .disabled(saving)
@@ -166,7 +166,7 @@ struct PreferencesView: View {
             }
             .padding(24)
         }
-        .background(Color(hex: "F3D9D1"))
+        .background(AppColors.peachBackground)
         .navigationTitle("Dating Preferences")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -190,7 +190,7 @@ struct PreferencesView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.headline)
-                .foregroundColor(Color(hex: "1F1F1F"))
+                .foregroundColor(AppColors.textPrimary)
             
             content()
         }
@@ -203,14 +203,14 @@ struct PreferencesView: View {
         Button(action: action) {
             Text(label)
                 .font(.subheadline)
-                .foregroundColor(isSelected ? .white : Color(hex: "333333"))
+                .foregroundColor(isSelected ? .white : AppColors.textSecondary)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                .background(isSelected ? Color(hex: "5F7A66") : Color.clear)
+                .background(isSelected ? AppColors.verifyGreen : Color.clear)
                 .clipShape(Capsule())
                 .overlay(
                     Capsule()
-                        .stroke(isSelected ? Color(hex: "5F7A66") : Color(hex: "D6D0C9"), lineWidth: 1)
+                        .stroke(isSelected ? AppColors.verifyGreen : AppColors.border, lineWidth: 1)
                 )
         }
     }

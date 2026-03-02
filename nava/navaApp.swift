@@ -4,18 +4,21 @@ import SwiftUI
 struct navaApp: App {
     @StateObject private var authManager = AuthManager()
     @StateObject private var locationManager = LocationManager()
+    @StateObject private var storeKitManager = StoreKitManager()
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(authManager)
                 .environmentObject(locationManager)
+                .environmentObject(storeKitManager)
         }
     }
 }
 
 struct RootView: View {
     @EnvironmentObject var auth: AuthManager
+    @EnvironmentObject var locationManager: LocationManager
 
     var body: some View {
         Group {
@@ -37,6 +40,13 @@ struct RootView: View {
             }
         }
         .animation(.easeInOut, value: auth.status)
+        .onChange(of: auth.status) { _, newStatus in
+            if newStatus == .authenticated {
+                // Request location permission and send to backend after login
+                locationManager.requestPermission()
+                locationManager.updateLocation()
+            }
+        }
     }
 }
 

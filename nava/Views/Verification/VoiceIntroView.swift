@@ -14,6 +14,7 @@ struct VoiceIntroView: View {
     @State private var timer: Timer? = nil
     @State private var showAlert = false
     @State private var alertMessage = ""
+    @State private var isPlayingExisting = false
     
     private let maxDuration: TimeInterval = 15
     
@@ -47,13 +48,13 @@ struct VoiceIntroView: View {
                     statusBadge
                     
                     // Existing voice intro
-                    if auth.user?.voiceIntroUrl != nil && recordedURL == nil {
+                    if let existingUrl = auth.user?.voiceIntroUrl, !existingUrl.isEmpty, recordedURL == nil {
                         Button {
-                            // Would play existing intro
+                            playExistingIntro(existingUrl)
                         } label: {
                             HStack(spacing: 8) {
-                                Image(systemName: "play.fill")
-                                Text("Listen to current intro")
+                                Image(systemName: isPlayingExisting ? "stop.fill" : "play.fill")
+                                Text(isPlayingExisting ? "Stop Playback" : "Listen to current intro")
                                     .font(.subheadline.bold())
                             }
                             .foregroundColor(.white)
@@ -254,18 +255,60 @@ struct VoiceIntroView: View {
         }
     }
     
+    private func playExistingIntro(_ urlString: String) {
+        if isPlayingExisting {
+            audioPlayer?.stop()
+            isPlayingExisting = false
+            return
+        }
+        guard let url = URL(string: urlString) else { return }
+        
+        // Download and play
+        Task {
+            do {
+                let session = AVAudioSession.sharedInstance()
+                try session.setCategory(.playback, mode: .default)
+                try session.setActive(true)
+                
+                let (data, _) = try await URLSession.shared.data(from: url)
+                audioPlayer = try AVAudioPlayer(data: data)
+                audioPlayer?.play()
+                isPlayingExisting = true
+                
+                // Auto-stop after playback
+                let playDuration = audioPlayer?.duration ?? 15
+                DispatchQueue.main.asyncAfter(deadline: .now() + playDuration) {
+                    isPlayingExisting = false
+                }
+            } catch {
+                alertMessage = "Could not play existing intro."
+                showAlert = true
+            }
+        }
+    }
+    
     private func uploadVoiceIntro() {
-        guard recordedURL != nil else { return }
+        guard let url = recordedURL else { return }
         isUploading = true
         
         Task {
             do {
-                // In production: upload via gqlUpload
-                try await Task.sleep(for: .seconds(2))
+                let audioData = try Data(contentsOf: url)
+                struct UploadResponse: Codable {
+                    let url: String?
+                    let message: String?
+                }
+                let _: UploadResponse = try await APIService.shared.multipartUpload(
+                    path: "/voice-intro",
+                    fileData: audioData,
+                    fileName: "voice-intro.m4a",
+                    mimeType: "audio/mp4",
+                    fileField: "audio"
+                )
                 await auth.refreshProfile()
                 alertMessage = "Voice intro uploaded successfully!"
             } catch {
-                alertMessage = "Upload failed. Please try again."
+                alertMessage = "Upload failed: \(error.localizedDescription)"
             }
             isUploading = false
             showAlert = true

@@ -1,0 +1,221 @@
+{
+  "identifier" : "E1B46EA5-A0A0-4E87-B tried-NAVA-Products",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "2.99",
+      "familyShareable" : false,
+      "internalID" : "B001",
+      "localizations" : [
+        {
+          "description" : "Get priority in discovery for 1 hour",
+          "displayName" : "1 Boost",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.nava.boost_1",
+      "referenceName" : "1 Boost",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "9.99",
+      "familyShareable" : false,
+      "internalID" : "B005",
+      "localizations" : [
+        {
+          "description" : "5 boosts to get seen first",
+          "displayName" : "5 Boosts Pack",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.nava.boost_5",
+      "referenceName" : "5 Boosts Pack",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "SL005",
+      "localizations" : [
+        {
+          "description" : "5 super likes to stand out",
+          "displayName" : "5 Super Likes",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.nava.super_like_5",
+      "referenceName" : "5 Super Likes",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "3.99",
+      "familyShareable" : false,
+      "internalID" : "SP001",
+      "localizations" : [
+        {
+          "description" : "1 hour of spotlight visibility",
+          "displayName" : "1hr Spotlight",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "com.nava.spotlight_1hr",
+      "referenceName" : "1hr Spotlight",
+      "type" : "Consumable"
+    }
+  ],
+  "settings" : {
+    "_applicationInternalID" : "NAVA001",
+    "_developerTeamID" : "DEVELOPMENT_TEAM",
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Load Products"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Purchase"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Verification"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Store Sync"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Subscription Status"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Transaction"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Manage Subscriptions Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Offer Code Redeem Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Subscription Renewal"
+      }
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "NAVA_PREMIUM",
+      "localizations" : [
+
+      ],
+      "name" : "NAVA Premium",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "9.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "SUB_GOLD",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Unlimited likes, see who likes you, 5 Super Likes/day",
+              "displayName" : "Gold Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.nava.gold_monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Gold Monthly",
+          "subscriptionGroupID" : "NAVA_PREMIUM",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "19.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "SUB_PLAT",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "All Gold features plus priority matching, read receipts, weekly boost",
+              "displayName" : "Platinum Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.nava.platinum_monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Platinum Monthly",
+          "subscriptionGroupID" : "NAVA_PREMIUM",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "29.99",
+          "familyShareable" : false,
+          "groupNumber" : 3,
+          "internalID" : "SUB_ULTRA",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "All Platinum features plus priority support, exclusive events, unlimited Super Likes",
+              "displayName" : "Ultra Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.nava.ultra_monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Ultra Monthly",
+          "subscriptionGroupID" : "NAVA_PREMIUM",
+          "type" : "RecurringSubscription",
+          "winbackOffers" : [
+
+          ]
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

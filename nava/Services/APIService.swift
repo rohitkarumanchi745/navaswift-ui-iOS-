@@ -107,6 +107,40 @@ class APIService {
         return try JSONDecoder().decode(T.self, from: responseData)
     }
 
+    // MARK: - Multipart Upload
+    func multipartUpload<T: Decodable>(
+        path: String,
+        fileData: Data,
+        fileName: String,
+        mimeType: String,
+        fileField: String = "file",
+        fields: [String: String] = [:]
+    ) async throws -> T {
+        let boundary = UUID().uuidString
+        var request = URLRequest(url: URL(string: "\(baseURL)\(path)")!)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        if let token = authToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        var body = Data()
+        for (key, value) in fields {
+            body.append("--\(boundary)\r\n".data(using: .utf8)!)
+            body.append("Content-Disposition: form-data; name=\"\(key)\"\r\n\r\n".data(using: .utf8)!)
+            body.append("\(value)\r\n".data(using: .utf8)!)
+        }
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"\(fileField)\"; filename=\"\(fileName)\"\r\n".data(using: .utf8)!)
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(fileData)
+        body.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+
+        request.httpBody = body
+        let (responseData, _) = try await performWithRetry(request: request)
+        return try JSONDecoder().decode(T.self, from: responseData)
+    }
+
     // MARK: - Retry Logic
     private func performWithRetry(request: URLRequest, attempt: Int = 0) async throws -> (Data, URLResponse) {
         do {

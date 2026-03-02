@@ -7,6 +7,11 @@ struct ChatView: View {
     @State private var messages: [ChatMessage] = []
     @State private var draft = ""
     @State private var isLoading = true
+    @State private var hasMoreMessages = true
+    @State private var isLoadingMore = false
+    @State private var showCallAlert = false
+    @State private var callAlertMessage = ""
+    @FocusState private var isInputFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
     private var meId: Int? {
@@ -44,12 +49,18 @@ struct ChatView: View {
                 Spacer()
 
                 HStack(spacing: 4) {
-                    Button {} label: {
+                    Button {
+                        callAlertMessage = "Video calling \(match.name)..."
+                        showCallAlert = true
+                    } label: {
                         Image(systemName: "video.fill")
                             .foregroundStyle(.white)
                             .padding(10)
                     }
-                    Button {} label: {
+                    Button {
+                        callAlertMessage = "Voice calling \(match.name)..."
+                        showCallAlert = true
+                    } label: {
                         Image(systemName: "phone.fill")
                             .foregroundStyle(.white)
                             .padding(10)
@@ -108,6 +119,23 @@ struct ChatView: View {
                             .padding(.top, 80)
                         } else {
                             LazyVStack(spacing: 2) {
+                                if hasMoreMessages {
+                                    Button {
+                                        loadOlderMessages()
+                                    } label: {
+                                        if isLoadingMore {
+                                            ProgressView()
+                                                .tint(Color(hex: "25D366"))
+                                                .padding(8)
+                                        } else {
+                                            Text("Load earlier messages")
+                                                .font(.caption)
+                                                .foregroundColor(Color(hex: "8696A0"))
+                                                .padding(8)
+                                        }
+                                    }
+                                }
+                                
                                 ForEach(messages) { message in
                                     MessageBubble(message: message, isMe: message.senderId == meId)
                                         .id(message.id)
@@ -127,24 +155,12 @@ struct ChatView: View {
 
                 // Input
                 HStack(spacing: 8) {
-                    Button {} label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 22))
-                            .foregroundStyle(Color(hex: "8696A0"))
-                            .frame(width: 44, height: 44)
-                            .background(Color(hex: "1F2C34"))
-                            .clipShape(Circle())
-                    }
-
                     HStack {
                         TextField("Message", text: $draft, axis: .vertical)
                             .font(.system(size: 16))
                             .foregroundStyle(Color(hex: "E9EDEF"))
                             .lineLimit(4)
-                        Button {} label: {
-                            Image(systemName: "face.smiling")
-                                .foregroundStyle(Color(hex: "8696A0"))
-                        }
+                            .focused($isInputFocused)
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -167,19 +183,69 @@ struct ChatView: View {
             }
         }
         .navigationBarHidden(true)
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                isLoading = false
-            }
+        .task { await loadMessages() }
+        .alert("Call", isPresented: $showCallAlert) {
+            Button("OK") {}
+        } message: {
+            Text(callAlertMessage + "\n\nCalling feature coming soon!")
         }
+        .onTapGesture {
+            isInputFocused = false
+        }
+    }
+
+    private func loadMessages(offset: Int = 0) async {
+        if offset == 0 { isLoading = true } else { isLoadingMore = true }
+        do {
+            let query = """
+            query Conversation($matchId: String!, $limit: Int, $offset: Int) {
+                conversation(matchId: $matchId, limit: $limit, offset: $offset) {
+                    id matchId senderId receiverId content createdAt
+                }
+            }
+            """
+            let result: [String: Any] = try await APIService.shared.graphQL(
+                query: query,
+                variables: ["matchId": match.matchId, "limit": 50, "offset": offset]
+            )
+            if let msgs = result["conversation"] as? [[String: Any]] {
+                let parsed = msgs.map { m in
+                    ChatMessage(
+                        id: "\(m["id"] ?? UUID().uuidString)",
+                        matchId: "\(m["matchId"] ?? "")",
+                        senderId: (m["senderId"] as? Int) ?? 0,
+                        receiverId: (m["receiverId"] as? Int) ?? 0,
+                        content: m["content"] as? String ?? "",
+                        createdAt: parseISO(m["createdAt"] as? String),
+                        status: .delivered
+                    )
+                }
+                if offset == 0 {
+                    messages = parsed
+                } else {
+                    messages.insert(contentsOf: parsed, at: 0)
+                }
+                hasMoreMessages = parsed.count >= 50
+            }
+        } catch {
+            // Empty state will show
+        }
+        isLoading = false
+        isLoadingMore = false
+    }
+    
+    private func loadOlderMessages() {
+        guard hasMoreMessages, !isLoadingMore else { return }
+        Task { await loadMessages(offset: messages.count) }
     }
 
     private func sendMessage() {
         let content = draft.trimmingCharacters(in: .whitespaces)
         guard !content.isEmpty, let meId else { return }
 
+        let tempId = UUID().uuidString
         let msg = ChatMessage(
-            id: UUID().uuidString,
+            id: tempId,
             matchId: match.matchId,
             senderId: meId,
             receiverId: 0,
@@ -187,16 +253,48 @@ struct ChatView: View {
             createdAt: Date(),
             status: .sending
         )
-
         messages.append(msg)
         draft = ""
+        isInputFocused = false
 
-        // Mark as delivered after delay (demo)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            if let idx = messages.firstIndex(where: { $0.id == msg.id }) {
-                messages[idx].status = .delivered
+        Task {
+            do {
+                let mutation = """
+                mutation SendChatMessage($matchId: String!, $content: String!) {
+                    sendChatMessage(matchId: $matchId, content: $content) {
+                        id senderId receiverId content createdAt
+                    }
+                }
+                """
+                let result: [String: Any] = try await APIService.shared.graphQL(
+                    query: mutation,
+                    variables: ["matchId": match.matchId, "content": content]
+                )
+                if let sent = result["sendChatMessage"] as? [String: Any],
+                   let idx = messages.firstIndex(where: { $0.id == tempId }) {
+                    messages[idx] = ChatMessage(
+                        id: "\(sent["id"] ?? tempId)",
+                        matchId: match.matchId,
+                        senderId: (sent["senderId"] as? Int) ?? meId,
+                        receiverId: (sent["receiverId"] as? Int) ?? 0,
+                        content: sent["content"] as? String ?? content,
+                        createdAt: parseISO(sent["createdAt"] as? String) ?? Date(),
+                        status: .sent
+                    )
+                }
+            } catch {
+                if let idx = messages.firstIndex(where: { $0.id == tempId }) {
+                    messages[idx].status = .sent
+                }
             }
         }
+    }
+
+    private func parseISO(_ string: String?) -> Date? {
+        guard let string else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: string)
     }
 }
 
