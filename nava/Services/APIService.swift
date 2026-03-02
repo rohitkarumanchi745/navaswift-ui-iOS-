@@ -1,0 +1,130 @@
+import Foundation
+
+// MARK: - API Errors
+enum APIError: LocalizedError {
+    case networkError
+    case invalidResponse
+    case serverError(String)
+    case unauthorized
+
+    var errorDescription: String? {
+        switch self {
+        case .networkError: return "No internet connection. Please check your network."
+        case .invalidResponse: return "Invalid response from server."
+        case .serverError(let msg): return msg
+        case .unauthorized: return "Session expired. Please sign in again."
+        }
+    }
+}
+
+// MARK: - API Service
+class APIService {
+    static let shared = APIService()
+
+    private let baseURL: String
+    private var authToken: String?
+    private let session: URLSession
+    private let maxRetries = 3
+
+    private init() {
+        baseURL = UserDefaults.standard.string(forKey: "api_base_url") ?? "http://127.0.0.1:8080"
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30
+        session = URLSession(configuration: config)
+    }
+
+    func setAuthToken(_ token: String?) {
+        authToken = token
+    }
+
+    // MARK: - GraphQL
+    func graphQL<T>(query: String, variables: [String: Any]? = nil) async throws -> T {
+        var body: [String: Any] = ["query": query]
+        if let variables { body["variables"] = variables }
+
+        let data = try JSONSerialization.data(withJSONObject: body)
+
+        var request = URLRequest(url: URL(string: "\(baseURL)/graphql")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = authToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        request.httpBody = data
+
+        let (responseData, response) = try await performWithRetry(request: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        if httpResponse.statusCode == 401 {
+            throw APIError.unauthorized
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any] else {
+            throw APIError.invalidResponse
+        }
+
+        if let errors = json["errors"] as? [[String: Any]] {
+            let messages = errors.compactMap { $0["message"] as? String }
+            throw APIError.serverError(messages.joined(separator: "; "))
+        }
+
+        guard let data = json["data"] as? T else {
+            throw APIError.invalidResponse
+        }
+
+        return data
+    }
+
+    // MARK: - REST
+    func post<T: Decodable>(path: String, body: [String: Any]) async throws -> T {
+        let data = try JSONSerialization.data(withJSONObject: body)
+
+        var request = URLRequest(url: URL(string: "\(baseURL)\(path)")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token = authToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        request.httpBody = data
+
+        let (responseData, _) = try await performWithRetry(request: request)
+        return try JSONDecoder().decode(T.self, from: responseData)
+    }
+
+    func get<T: Decodable>(path: String) async throws -> T {
+        var request = URLRequest(url: URL(string: "\(baseURL)\(path)")!)
+        request.httpMethod = "GET"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = authToken {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let (responseData, _) = try await performWithRetry(request: request)
+        return try JSONDecoder().decode(T.self, from: responseData)
+    }
+
+    // MARK: - Retry Logic
+    private func performWithRetry(request: URLRequest, attempt: Int = 0) async throws -> (Data, URLResponse) {
+        do {
+            return try await session.data(for: request)
+        } catch {
+            let retryableStatuses = [408, 429, 500, 502, 503, 504]
+
+            if attempt < maxRetries {
+                if let urlError = error as? URLError, urlError.code == .notConnectedToInternet {
+                    throw APIError.networkError
+                }
+
+                let delay = Double(min(1000 * Int(pow(2.0, Double(attempt))), 10000)) / 1000.0
+                try await Task.sleep(for: .seconds(delay))
+                return try await performWithRetry(request: request, attempt: attempt + 1)
+            }
+
+            throw error
+        }
+    }
+}
