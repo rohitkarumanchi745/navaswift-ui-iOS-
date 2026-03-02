@@ -27,7 +27,7 @@ class APIService {
     private let maxRetries = 3
 
     private init() {
-        baseURL = UserDefaults.standard.string(forKey: "api_base_url") ?? "http://127.0.0.1:8080"
+        baseURL = UserDefaults.standard.string(forKey: "api_base_url") ?? AppConfig.shared.apiBaseURL
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
         session = URLSession(configuration: config)

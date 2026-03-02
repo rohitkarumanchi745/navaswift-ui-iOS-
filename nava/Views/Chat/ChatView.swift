@@ -11,6 +11,7 @@ struct ChatView: View {
     @State private var isLoadingMore = false
     @State private var showCallAlert = false
     @State private var callAlertMessage = ""
+    @StateObject private var ws = ChatWebSocket()
     @FocusState private var isInputFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
@@ -183,7 +184,31 @@ struct ChatView: View {
             }
         }
         .navigationBarHidden(true)
-        .task { await loadMessages() }
+        .task {
+            await loadMessages()
+            if let token = auth.token {
+                ws.connect(matchId: match.matchId, token: token)
+            }
+        }
+        .onDisappear { ws.disconnect() }
+        .onChange(of: ws.incomingMessages.count) { _, _ in
+            guard let event = ws.incomingMessages.last,
+                  event.type == "message",
+                  let senderId = event.senderId,
+                  senderId != meId else { return }
+            let msg = ChatMessage(
+                id: "\(event.messageId ?? Int.random(in: 100000...999999))",
+                matchId: match.matchId,
+                senderId: senderId,
+                receiverId: meId ?? 0,
+                content: event.content ?? "",
+                createdAt: parseISO(event.timestamp),
+                status: .delivered
+            )
+            if !messages.contains(where: { $0.id == msg.id }) {
+                messages.append(msg)
+            }
+        }
         .alert("Call", isPresented: $showCallAlert) {
             Button("OK") {}
         } message: {
@@ -257,6 +282,12 @@ struct ChatView: View {
         draft = ""
         isInputFocused = false
 
+        // Send via WebSocket for real-time delivery
+        if ws.isConnected {
+            ws.sendMessage(content)
+        }
+
+        // Persist via GraphQL (server stores the message in DB)
         Task {
             do {
                 let mutation = """

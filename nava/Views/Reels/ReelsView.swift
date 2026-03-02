@@ -400,7 +400,7 @@ struct ReelCard: View {
         messageText = ""
         Task {
             struct R: Codable { let success: Bool? }
-            let _: R? = try? await APIService.shared.post(path: "/reels/message", body: ["reel_id": Int(reel.id) ?? 0, "message": text])
+            let _: R? = try? await APIService.shared.post(path: "/reels/message", body: ["reel_id": Int(reel.id) ?? 0, "content": text])
         }
     }
     
@@ -575,7 +575,7 @@ struct UploadReelView: View {
                     fileData: videoData,
                     fileName: "reel.mp4",
                     mimeType: "video/mp4",
-                    fields: ["title": caption]
+                    fields: ["caption": caption]
                 )
                 await onUpload?()
                 dismiss()
