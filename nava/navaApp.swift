@@ -1,4 +1,7 @@
 import SwiftUI
+import NavCore
+import NavServices
+import NavFeatures
 
 @main
 struct navaApp: App {
@@ -42,7 +45,6 @@ struct RootView: View {
         .animation(.easeInOut, value: auth.status)
         .onChange(of: auth.status) { _, newStatus in
             if newStatus == .authenticated {
-                // Request location permission and send to backend after login
                 locationManager.requestPermission()
                 locationManager.updateLocation()
             }

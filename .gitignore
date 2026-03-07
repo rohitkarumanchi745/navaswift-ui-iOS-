@@ -7,7 +7,7 @@ xcuserdata/
 
 # Swift Package Manager
 .build/
-Packages/
+!Packages/
 
 # CocoaPods
 Pods/

@@ -6,6 +6,13 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A1B2C3D4E5F60001AABB0001 /* NavCore in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60002AABB0001 /* NavCore */; };
+		A1B2C3D4E5F60001AABB0002 /* NavNetworking in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60002AABB0002 /* NavNetworking */; };
+		A1B2C3D4E5F60001AABB0003 /* NavServices in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60002AABB0003 /* NavServices */; };
+		A1B2C3D4E5F60001AABB0004 /* NavFeatures in Frameworks */ = {isa = PBXBuildFile; productRef = A1B2C3D4E5F60002AABB0004 /* NavFeatures */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		F95C96412F525776007C5560 /* nava.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = nava.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +30,10 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1B2C3D4E5F60001AABB0001 /* NavCore in Frameworks */,
+				A1B2C3D4E5F60001AABB0002 /* NavNetworking in Frameworks */,
+				A1B2C3D4E5F60001AABB0003 /* NavServices in Frameworks */,
+				A1B2C3D4E5F60001AABB0004 /* NavFeatures in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +76,10 @@
 			);
 			name = nava;
 			packageProductDependencies = (
+				A1B2C3D4E5F60002AABB0001 /* NavCore */,
+				A1B2C3D4E5F60002AABB0002 /* NavNetworking */,
+				A1B2C3D4E5F60002AABB0003 /* NavServices */,
+				A1B2C3D4E5F60002AABB0004 /* NavFeatures */,
 			);
 			productName = nava;
 			productReference = F95C96412F525776007C5560 /* nava.app */;
@@ -94,6 +109,12 @@
 			);
 			mainGroup = F95C96382F525776007C5560;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A1B2C3D4E5F60003AABB0001 /* XCLocalSwiftPackageReference "Packages/NavCore" */,
+				A1B2C3D4E5F60003AABB0002 /* XCLocalSwiftPackageReference "Packages/NavNetworking" */,
+				A1B2C3D4E5F60003AABB0003 /* XCLocalSwiftPackageReference "Packages/NavServices" */,
+				A1B2C3D4E5F60003AABB0004 /* XCLocalSwiftPackageReference "Packages/NavFeatures" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = F95C96422F525776007C5560 /* Products */;
 			projectDirPath = "";
@@ -345,6 +366,44 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A1B2C3D4E5F60003AABB0001 /* XCLocalSwiftPackageReference "Packages/NavCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/NavCore;
+		};
+		A1B2C3D4E5F60003AABB0002 /* XCLocalSwiftPackageReference "Packages/NavNetworking" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/NavNetworking;
+		};
+		A1B2C3D4E5F60003AABB0003 /* XCLocalSwiftPackageReference "Packages/NavServices" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/NavServices;
+		};
+		A1B2C3D4E5F60003AABB0004 /* XCLocalSwiftPackageReference "Packages/NavFeatures" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/NavFeatures;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A1B2C3D4E5F60002AABB0001 /* NavCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = NavCore;
+		};
+		A1B2C3D4E5F60002AABB0002 /* NavNetworking */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = NavNetworking;
+		};
+		A1B2C3D4E5F60002AABB0003 /* NavServices */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = NavServices;
+		};
+		A1B2C3D4E5F60002AABB0004 /* NavFeatures */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = NavFeatures;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = F95C96392F525776007C5560 /* Project object */;
 }
