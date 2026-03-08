@@ -6,6 +6,7 @@ import NavServices
 
 public struct UpdateProfileView: View {
     @EnvironmentObject var auth: AuthManager
+    @EnvironmentObject var locationManager: LocationManager
     @State private var step = 0
     @State private var floatOffset: CGFloat = 0
 
@@ -33,6 +34,8 @@ public struct UpdateProfileView: View {
     @State private var isSaving = false
     @State private var showError = false
     @State private var errorMessage = ""
+    @State private var detectingLocation = false
+    @State private var showSelfieVerification = false
 
     private let totalSteps = 4
 
@@ -182,8 +185,24 @@ public struct UpdateProfileView: View {
                 if let i = user.interests { selectedInterests = Set(i) }
                 if let l = user.languages { selectedLanguages = Set(l) }
             }
+            // Auto-fill location from device GPS if not already set
+            if location.isEmpty && locationManager.city != "Unknown" {
+                location = locationManager.city
+            }
             withAnimation(.easeInOut(duration: 4).repeatForever(autoreverses: true)) {
                 floatOffset = 20
+            }
+        }
+        .onChange(of: locationManager.city) { _, newCity in
+            if newCity != "Unknown" && (location.isEmpty || detectingLocation) {
+                location = newCity
+                detectingLocation = false
+            }
+        }
+        .navigationDestination(isPresented: $showSelfieVerification) {
+            OnboardingSelfieView {
+                // Called after verify or skip — finalize onboarding
+                Task { await auth.refreshProfile() }
             }
         }
     }
@@ -389,7 +408,28 @@ public struct UpdateProfileView: View {
                 .padding(.top, 32)
 
                 VStack(alignment: .leading, spacing: 10) {
-                    sectionLabel("LOCATION")
+                    HStack {
+                        sectionLabel("LOCATION")
+                        Spacer()
+                        Button {
+                            detectingLocation = true
+                            locationManager.updateLocation()
+                        } label: {
+                            HStack(spacing: 4) {
+                                if locationManager.isLoading {
+                                    ProgressView()
+                                        .scaleEffect(0.7)
+                                        .tint(.white.opacity(0.5))
+                                } else {
+                                    Image(systemName: "location.fill")
+                                        .font(.system(size: 11))
+                                }
+                                Text("Detect")
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            }
+                            .foregroundStyle(.white.opacity(0.5))
+                        }
+                    }
                     TextField("", text: $location, prompt: Text("e.g. Hyderabad, India").foregroundStyle(.white.opacity(0.2)))
                         .font(.system(size: 17, weight: .medium, design: .rounded))
                         .foregroundStyle(.white)
@@ -401,6 +441,42 @@ public struct UpdateProfileView: View {
                                 .strokeBorder(.white.opacity(0.1), lineWidth: 1)
                         )
                 }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        sectionLabel("HEIGHT")
+                        Spacer()
+                        let feet = heightCm * 100 / 3048
+                        let inches = (heightCm * 100 % 3048) * 12 / 3048
+                        Text("\(heightCm) cm · \(feet)'\(inches)\"")
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
+
+                    HStack(spacing: 16) {
+                        Image(systemName: "figure.stand")
+                            .font(.system(size: 18))
+                            .foregroundStyle(.white.opacity(0.3))
+                            .scaleEffect(y: 0.7)
+
+                        Slider(value: Binding(
+                            get: { Double(heightCm) },
+                            set: { heightCm = Int($0) }
+                        ), in: 140...220, step: 1)
+                        .tint(.white)
+
+                        Image(systemName: "figure.stand")
+                            .font(.system(size: 24))
+                            .foregroundStyle(.white.opacity(0.3))
+                    }
+                }
+                .padding(16)
+                .background(.white.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .strokeBorder(.white.opacity(0.1), lineWidth: 1)
+                )
 
                 VStack(alignment: .leading, spacing: 10) {
                     sectionLabel("PROFESSION")
@@ -434,23 +510,6 @@ public struct UpdateProfileView: View {
                             RoundedRectangle(cornerRadius: 14)
                                 .strokeBorder(.white.opacity(0.1), lineWidth: 1)
                         )
-                }
-
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        sectionLabel("HEIGHT")
-                        Spacer()
-                        let feet = heightCm * 100 / 3048
-                        let inches = (heightCm * 100 % 3048) * 12 / 3048
-                        Text("\(heightCm) cm · \(feet)'\(inches)\"")
-                            .font(.system(size: 13, weight: .medium, design: .rounded))
-                            .foregroundStyle(.white.opacity(0.35))
-                    }
-                    Slider(value: Binding(
-                        get: { Double(heightCm) },
-                        set: { heightCm = Int($0) }
-                    ), in: 140...220, step: 1)
-                    .tint(.white)
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
@@ -615,6 +674,26 @@ public struct UpdateProfileView: View {
                 dateFormatter.dateFormat = "yyyy-MM-dd"
                 let dobString = dateFormatter.string(from: dob)
 
+                // Encode photos as base64 data URIs
+                var photoVars: [String: Any] = [:]
+                for (index, image) in photoImages.prefix(3).enumerated() {
+                    if let data = image.jpegData(compressionQuality: 0.8) {
+                        let base64 = data.base64EncodedString()
+                        photoVars["profile_photo_\(index + 1)"] = "data:image/jpeg;base64,\(base64)"
+                    }
+                }
+
+                // Build mutation with optional photo fields
+                var photoParams = ""
+                var photoArgs = ""
+                for i in 1...3 {
+                    let key = "profile_photo_\(i)"
+                    if photoVars[key] != nil {
+                        photoParams += ",\n                    $\(key): String"
+                        photoArgs += ",\n                        \(key): $\(key)"
+                    }
+                }
+
                 let query = """
                 mutation UpdateProfile(
                     $name: String!,
@@ -622,45 +701,52 @@ public struct UpdateProfileView: View {
                     $gender: String!,
                     $bio: String!,
                     $location: String!,
-                    $lookingFor: String!,
+                    $looking_for: String!,
                     $interests: [String!]!,
                     $languages: [String!]!,
-                    $heightCm: Int,
-                    $professionCategory: String,
-                    $professionTitle: String
+                    $height_cm: Int,
+                    $profession_category: String,
+                    $profession_title: String\(photoParams)
                 ) {
-                    updateProfile(
+                    update_profile(
                         name: $name,
                         dob: $dob,
                         gender: $gender,
                         bio: $bio,
                         location: $location,
-                        lookingFor: $lookingFor,
+                        looking_for: $looking_for,
                         interests: $interests,
                         languages: $languages,
-                        heightCm: $heightCm,
-                        professionCategory: $professionCategory,
-                        professionTitle: $professionTitle
+                        height_cm: $height_cm,
+                        profession_category: $profession_category,
+                        profession_title: $profession_title\(photoArgs)
                     )
                 }
                 """
+
+                var variables: [String: Any] = [
+                    "name": name,
+                    "dob": dobString,
+                    "gender": gender,
+                    "bio": bio,
+                    "location": location,
+                    "looking_for": lookingFor,
+                    "interests": Array(selectedInterests),
+                    "languages": Array(selectedLanguages),
+                    "height_cm": heightCm,
+                    "profession_category": professionCategory,
+                    "profession_title": professionTitle,
+                ]
+                for (key, value) in photoVars {
+                    variables[key] = value
+                }
+
                 let _: [String: Any] = try await APIService.shared.graphQL(
                     query: query,
-                    variables: [
-                        "name": name,
-                        "dob": dobString,
-                        "gender": gender,
-                        "bio": bio,
-                        "location": location,
-                        "lookingFor": lookingFor,
-                        "interests": Array(selectedInterests),
-                        "languages": Array(selectedLanguages),
-                        "heightCm": heightCm,
-                        "professionCategory": professionCategory,
-                        "professionTitle": professionTitle,
-                    ]
+                    variables: variables
                 )
-                await auth.refreshProfile()
+                // Navigate to selfie verification instead of finishing onboarding immediately
+                showSelfieVerification = true
             } catch {
                 errorMessage = error.localizedDescription
                 showError = true
@@ -670,9 +756,191 @@ public struct UpdateProfileView: View {
     }
 }
 
+// MARK: - Onboarding Selfie Verification
+
+struct OnboardingSelfieView: View {
+    @EnvironmentObject var auth: AuthManager
+    @State private var selfieImage: UIImage? = nil
+    @State private var selectedItem: PhotosPickerItem? = nil
+    @State private var isSubmitting = false
+    @State private var showAlert = false
+    @State private var alertMessage = ""
+    @State private var floatOffset: CGFloat = 0
+
+    let onComplete: () -> Void
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color(hex: "1A1B2E"), Color(hex: "2D1B4E"), Color(hex: "1A1B2E")],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            Circle()
+                .fill(Color(hex: "4ECDC4").opacity(0.12))
+                .frame(width: 220, height: 220)
+                .blur(radius: 70)
+                .offset(x: -80, y: -200 + floatOffset)
+
+            Circle()
+                .fill(Color(hex: "6A4C93").opacity(0.15))
+                .frame(width: 180, height: 180)
+                .blur(radius: 60)
+                .offset(x: 90, y: 100 - floatOffset)
+
+            VStack(spacing: 0) {
+                Spacer()
+
+                Image(systemName: "shield.checkmark.fill")
+                    .font(.system(size: 48))
+                    .foregroundStyle(
+                        LinearGradient(colors: [Color(hex: "4ECDC4"), Color(hex: "45B7D1")],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .padding(.bottom, 20)
+
+                Text("Verify your identity")
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                    .padding(.bottom, 8)
+
+                Text("Take a selfie to earn a verified badge\nand build trust with matches")
+                    .font(.system(size: 15, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.5))
+                    .multilineTextAlignment(.center)
+                    .padding(.bottom, 32)
+
+                // Selfie capture area
+                PhotosPicker(selection: $selectedItem, matching: .images) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 24)
+                            .fill(.white.opacity(0.06))
+                            .frame(height: 240)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 24)
+                                    .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                            )
+
+                        if let image = selfieImage {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(height: 240)
+                                .clipShape(RoundedRectangle(cornerRadius: 24))
+                        } else {
+                            VStack(spacing: 12) {
+                                Image(systemName: "camera.fill")
+                                    .font(.system(size: 36))
+                                    .foregroundStyle(.white.opacity(0.3))
+                                Text("Tap to take a selfie")
+                                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                                    .foregroundStyle(.white.opacity(0.3))
+                            }
+                        }
+                    }
+                }
+                .onChange(of: selectedItem) { _, item in
+                    Task {
+                        if let data = try? await item?.loadTransferable(type: Data.self),
+                           let image = UIImage(data: data) {
+                            selfieImage = image
+                        }
+                    }
+                }
+                .padding(.bottom, 24)
+
+                // Verify button
+                Button { verifySelfie() } label: {
+                    Group {
+                        if isSubmitting {
+                            HStack(spacing: 8) {
+                                ProgressView().tint(Color(hex: "1A1B2E"))
+                                Text("Verifying...")
+                                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                            }
+                        } else {
+                            HStack(spacing: 8) {
+                                Image(systemName: "checkmark.shield.fill")
+                                Text("Verify & Continue")
+                                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                            }
+                        }
+                    }
+                    .foregroundStyle(Color(hex: "1A1B2E"))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 18)
+                    .background(selfieImage != nil && !isSubmitting ? .white : .white.opacity(0.3))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                }
+                .disabled(selfieImage == nil || isSubmitting)
+                .padding(.bottom, 16)
+
+                // Skip button
+                Button {
+                    onComplete()
+                } label: {
+                    Text("Skip for now")
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.4))
+                }
+
+                Spacer()
+                    .frame(height: 50)
+            }
+            .padding(.horizontal, 24)
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .navigationBarBackButtonHidden(true)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 4).repeatForever(autoreverses: true)) {
+                floatOffset = 20
+            }
+        }
+        .alert("Verification", isPresented: $showAlert) {
+            Button("Continue") { onComplete() }
+        } message: {
+            Text(alertMessage)
+        }
+    }
+
+    private func verifySelfie() {
+        guard let image = selfieImage,
+              let imageData = image.jpegData(compressionQuality: 0.8) else { return }
+        isSubmitting = true
+        Task {
+            do {
+                struct VerifyResponse: Codable {
+                    let verified: Bool?
+                    let message: String?
+                    let confidence: Double?
+                }
+                let result: VerifyResponse = try await APIService.shared.multipartUpload(
+                    path: "/verify/selfie",
+                    fileData: imageData,
+                    fileName: "selfie.jpg",
+                    mimeType: "image/jpeg",
+                    fileField: "selfie"
+                )
+                await auth.refreshProfile()
+                if result.verified == true {
+                    alertMessage = "Verification successful! You now have a verified badge."
+                } else {
+                    alertMessage = result.message ?? "Verification could not be completed. You can try again later from your profile."
+                }
+            } catch {
+                alertMessage = "Verification failed: \(error.localizedDescription)\nYou can try again later from your profile."
+            }
+            isSubmitting = false
+            showAlert = true
+        }
+    }
+}
+
 #Preview {
     NavigationStack {
         UpdateProfileView()
             .environmentObject(AuthManager())
+            .environmentObject(LocationManager())
     }
 }

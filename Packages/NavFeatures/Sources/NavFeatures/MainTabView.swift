@@ -43,7 +43,8 @@ public struct MainTabView: View {
             .tag(2)
 
             NavigationStack {
-                ReelsView()
+                ReelsView(selectedTab: $selectedTab)
+                    .toolbar(.hidden, for: .tabBar)
             }
             .tabItem {
                 Image(systemName: "play.rectangle.fill")

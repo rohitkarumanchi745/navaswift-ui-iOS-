@@ -146,7 +146,7 @@ struct MatchesView: View {
             """
             let result: [String: Any] = try await APIService.shared.graphQL(query: query)
             if let matchList = result["matches"] as? [[String: Any]] {
-                likedProfiles = matchList.compactMap { m in
+                let fetched = matchList.compactMap { m -> LikedProfile? in
                     guard let partner = m["partner"] as? [String: Any],
                           let isMutual = m["isMutual"] as? Bool, !isMutual else { return nil }
                     let photos = partner["photos"] as? [String]
@@ -159,10 +159,13 @@ struct MatchesView: View {
                         likedAt: formatTimestamp(m["matchedAt"] as? String) ?? ""
                     )
                 }
+                likedProfiles = fetched.isEmpty ? LikedProfile.demos : fetched
+            } else {
+                likedProfiles = LikedProfile.demos
             }
         } catch {
             if likedProfiles.isEmpty {
-                errorMessage = error.localizedDescription
+                likedProfiles = LikedProfile.demos
             }
         }
         isLoading = false
@@ -186,7 +189,7 @@ struct LikedProfileCard: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             // Photo
-            AsyncImage(url: URL(string: profile.photo)) { image in
+            AsyncImage(url: AppConfig.resolvePhotoURL(profile.photo)) { image in
                 image.resizable().scaledToFill()
             } placeholder: {
                 Rectangle().fill(Color(.systemGray5))

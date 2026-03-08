@@ -83,7 +83,7 @@ struct ConversationsView: View {
                                     NavigationLink(destination: ChatView(match: match)) {
                                         VStack(spacing: 6) {
                                             ZStack(alignment: .bottomTrailing) {
-                                                AsyncImage(url: URL(string: match.photo)) { image in
+                                                AsyncImage(url: AppConfig.resolvePhotoURL(match.photo)) { image in
                                                     image.resizable().scaledToFill()
                                                 } placeholder: {
                                                     Circle().fill(Color(.systemGray5))
@@ -117,7 +117,7 @@ struct ConversationsView: View {
                             NavigationLink(destination: ChatView(match: match)) {
                                 HStack(spacing: 12) {
                                     ZStack(alignment: .bottomTrailing) {
-                                        AsyncImage(url: URL(string: match.photo)) { image in
+                                        AsyncImage(url: AppConfig.resolvePhotoURL(match.photo)) { image in
                                             image.resizable().scaledToFill()
                                         } placeholder: {
                                             Circle().fill(Color(.systemGray5))
@@ -200,7 +200,7 @@ struct ConversationsView: View {
             """
             let result: [String: Any] = try await APIService.shared.graphQL(query: query)
             if let matchList = result["matches"] as? [[String: Any]] {
-                conversations = matchList.compactMap { m in
+                let fetched = matchList.compactMap { m -> MatchProfile? in
                     guard let partner = m["partner"] as? [String: Any],
                           let isMutual = m["isMutual"] as? Bool, isMutual else { return nil }
                     let photos = partner["photos"] as? [String]
@@ -217,10 +217,13 @@ struct ConversationsView: View {
                         isMutual: true
                     )
                 }
+                conversations = fetched.isEmpty ? MatchProfile.demos : fetched
+            } else {
+                conversations = MatchProfile.demos
             }
         } catch {
             if conversations.isEmpty {
-                errorMessage = error.localizedDescription
+                conversations = MatchProfile.demos
             }
         }
         isLoading = false

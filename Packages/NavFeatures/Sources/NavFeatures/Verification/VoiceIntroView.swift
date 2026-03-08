@@ -197,7 +197,7 @@ struct VoiceIntroView: View {
         Task {
             do {
                 let audioData = try Data(contentsOf: url)
-                struct UploadResponse: Codable { let url: String?; let message: String? }
+                struct UploadResponse: Codable { let success: Bool?; let voice_intro_url: String?; let duration_seconds: Double?; let message: String? }
                 let _: UploadResponse = try await APIService.shared.multipartUpload(
                     path: "/voice-intro", fileData: audioData,
                     fileName: "voice-intro.m4a", mimeType: "audio/mp4", fileField: "audio")

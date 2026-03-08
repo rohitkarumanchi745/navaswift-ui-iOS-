@@ -13,6 +13,8 @@ public class ChatWebSocket: ObservableObject {
     private var matchId: String = ""
     private var token: String = ""
     private var pingTask: Task<Void, Never>?
+    private var reconnectAttempts = 0
+    private let maxReconnectAttempts = 3
 
     public struct IncomingChatEvent: Identifiable {
         public let id = UUID()
@@ -36,6 +38,15 @@ public class ChatWebSocket: ObservableObject {
     public func connect(matchId: String, token: String) {
         self.matchId = matchId
         self.token = token
+        reconnectAttempts = 0
+        doConnect()
+    }
+
+    private func doConnect() {
+        // Cancel any existing ping task and connection
+        pingTask?.cancel()
+        pingTask = nil
+        webSocketTask?.cancel(with: .normalClosure, reason: nil)
 
         let base = AppConfig.shared.wsBaseURL
         guard let url = URL(string: "\(base)/ws/chat?match_id=\(matchId)&token=\(token)") else { return }
@@ -123,11 +134,12 @@ public class ChatWebSocket: ObservableObject {
     }
 
     private func scheduleReconnect() {
-        guard !matchId.isEmpty else { return }
+        guard !matchId.isEmpty, reconnectAttempts < maxReconnectAttempts else { return }
+        reconnectAttempts += 1
         Task {
             try? await Task.sleep(for: .seconds(3))
             if !isConnected {
-                connect(matchId: matchId, token: token)
+                doConnect()
             }
         }
     }

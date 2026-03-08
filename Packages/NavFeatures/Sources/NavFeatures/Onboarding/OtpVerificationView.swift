@@ -16,6 +16,7 @@ struct OtpVerificationView: View {
     private let otpLength = 4
 
     @State private var floatOffset: CGFloat = 0
+    @FocusState private var isOtpFocused: Bool
 
     var body: some View {
         ZStack {
@@ -82,16 +83,21 @@ struct OtpVerificationView: View {
                             )
                     }
                 }
+                .contentShape(Rectangle())
+                .onTapGesture { isOtpFocused = true }
                 .overlay {
                     TextField("", text: $otp)
                         .keyboardType(.numberPad)
                         .textContentType(.oneTimeCode)
+                        .focused($isOtpFocused)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .opacity(0.01)
                         .onChange(of: otp) { _, newValue in
                             otp = String(newValue.filter(\.isNumber).prefix(otpLength))
                         }
                 }
                 .padding(.bottom, 32)
+                .onAppear { isOtpFocused = true }
 
                 // Verify button
                 Button {

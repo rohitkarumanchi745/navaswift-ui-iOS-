@@ -5,7 +5,7 @@ import NavCore
 import NavNetworking
 
 // MARK: - Auth Status
-public enum AuthStatus: Equatable {
+public enum AuthStatus: Equatable, Hashable {
     case loading, unauthenticated, authenticated
 }
 
@@ -63,11 +63,14 @@ public class AuthManager: ObservableObject {
 
     private func bootstrapAuth() {
         guard let storedToken = KeychainHelper.load(key: tokenKey),
-              !storedToken.hasPrefix("mock-token") else {
+              !storedToken.hasPrefix("mock-token"),
+              !storedToken.hasPrefix("demo-token") else {
+            print("[NAVA DEBUG] bootstrapAuth: no valid token, setting unauthenticated")
             status = .unauthenticated
             return
         }
 
+        print("[NAVA DEBUG] bootstrapAuth: found token, calling refreshProfile")
         token = storedToken
         APIService.shared.setAuthToken(storedToken)
 
@@ -85,10 +88,19 @@ public class AuthManager: ObservableObject {
           }
         }
         """
-        let _: [String: Any] = try await APIService.shared.graphQL(
-            query: query,
-            variables: ["phoneNumber": phoneNumber]
-        )
+        print("[NAVA DEBUG] sendOtp called with phoneNumber: \(phoneNumber)")
+        print("[NAVA DEBUG] sendOtp query: \(query)")
+        print("[NAVA DEBUG] sendOtp variables: [\"phoneNumber\": \(phoneNumber)]")
+        do {
+            let _: [String: Any] = try await APIService.shared.graphQL(
+                query: query,
+                variables: ["phoneNumber": phoneNumber]
+            )
+            print("[NAVA DEBUG] sendOtp SUCCESS")
+        } catch {
+            print("[NAVA DEBUG] sendOtp FAILED: \(error)")
+            throw error
+        }
         UserDefaults.standard.set(phoneNumber, forKey: phoneKey)
     }
 
@@ -104,13 +116,22 @@ public class AuthManager: ObservableObject {
         }
         """
 
-        let result: [String: Any] = try await APIService.shared.graphQL(
-            query: query,
-            variables: ["phoneNumber": phoneNumber, "otp": otp]
-        )
+        print("[NAVA DEBUG] verifyOtp called with phoneNumber: \(phoneNumber), otp: \(otp)")
+        let result: [String: Any]
+        do {
+            result = try await APIService.shared.graphQL(
+                query: query,
+                variables: ["phoneNumber": phoneNumber, "otp": otp]
+            )
+            print("[NAVA DEBUG] verifyOtp result: \(result)")
+        } catch {
+            print("[NAVA DEBUG] verifyOtp FAILED: \(error)")
+            throw error
+        }
 
         guard let verifyOtp = result["verifyOtp"] as? [String: Any],
               let accessToken = verifyOtp["accessToken"] as? String else {
+            print("[NAVA DEBUG] verifyOtp parse FAILED - result was: \(result)")
             throw APIError.invalidResponse
         }
 
@@ -129,6 +150,7 @@ public class AuthManager: ObservableObject {
 
     @discardableResult
     public func refreshProfile() async -> UserProfile? {
+        print("[NAVA DEBUG] refreshProfile called (BUILD v2)")
         isRefreshingProfile = true
         defer { isRefreshingProfile = false }
 
@@ -145,11 +167,27 @@ public class AuthManager: ObservableObject {
 
         do {
             let result: [String: Any] = try await APIService.shared.graphQL(query: query)
+            print("[NAVA DEBUG] refreshProfile result: \(result)")
             guard let me = result["me"] as? [String: Any] else {
+                print("[NAVA DEBUG] refreshProfile: 'me' is nil, setting unauthenticated")
                 status = .unauthenticated
                 user = nil
                 return nil
             }
+
+            // Parse isProfileComplete robustly — NSNumber from JSON can be tricky
+            let rawComplete = me["isProfileComplete"]
+            let isComplete: Bool?
+            if let boolVal = rawComplete as? Bool {
+                isComplete = boolVal
+            } else if let numVal = rawComplete as? NSNumber {
+                isComplete = numVal.boolValue
+            } else if let intVal = rawComplete as? Int {
+                isComplete = intVal != 0
+            } else {
+                isComplete = nil
+            }
+            print("[NAVA DEBUG] refreshProfile: isProfileComplete raw=\(String(describing: rawComplete)) parsed=\(String(describing: isComplete))")
 
             let profile = UserProfile(
                 id: "\(me["id"] ?? "")",
@@ -163,18 +201,21 @@ public class AuthManager: ObservableObject {
                 professionTitle: me["professionTitle"] as? String,
                 interests: me["interests"] as? [String],
                 photos: me["photos"] as? [String],
-                isProfileComplete: me["isProfileComplete"] as? Bool,
+                isProfileComplete: isComplete,
                 isVerified: me["isVerified"] as? Bool,
                 isStudentVerified: me["isStudentVerified"] as? Bool,
                 heightCm: me["heightCm"] as? Int,
                 languages: me["languages"] as? [String],
-                lookingFor: me["lookingFor"] as? String
+                lookingFor: me["lookingFor"] as? String,
+                voiceIntroUrl: me["voiceIntroUrl"] as? String
             )
 
             user = profile
             status = .authenticated
+            print("[NAVA DEBUG] refreshProfile SUCCESS - user: \(profile.displayName), isProfileComplete: \(profile.isProfileComplete ?? false), status now: \(status)")
             return profile
         } catch {
+            print("[NAVA DEBUG] refreshProfile FAILED: \(error) - setting unauthenticated")
             status = .unauthenticated
             user = nil
             return nil

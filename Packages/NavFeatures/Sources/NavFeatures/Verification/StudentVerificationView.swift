@@ -193,9 +193,9 @@ struct StudentVerificationView: View {
     private func loadStudentStatus() async {
         if auth.user?.isStudentVerified == true { step = .verified; return }
         do {
-            struct StatusResponse: Codable { let verified: Bool?; let university_name: String?; let email: String? }
+            struct StatusResponse: Codable { let is_verified: Bool?; let university_name: String?; let email: String? }
             let result: StatusResponse = try await APIService.shared.get(path: "/student/status")
-            if result.verified == true {
+            if result.is_verified == true {
                 universityName = result.university_name ?? ""
                 step = .verified
             }
@@ -225,7 +225,7 @@ struct StudentVerificationView: View {
         Task {
             do {
                 let otpString = otp.joined()
-                struct OtpResponse: Codable { let success: Bool? }
+                struct OtpResponse: Codable { let verified: Bool?; let university_name: String? }
                 var body: [String: Any] = ["email": email, "otp": otpString]
                 if !universityName.isEmpty { body["university_name"] = universityName }
                 let _: OtpResponse = try await APIService.shared.post(path: "/student/verify-otp", body: body)

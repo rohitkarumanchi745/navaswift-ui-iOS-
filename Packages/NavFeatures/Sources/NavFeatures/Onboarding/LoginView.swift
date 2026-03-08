@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 import NavCore
+import NavNetworking
 import NavServices
 
 struct LoginView: View {
@@ -98,7 +99,7 @@ struct LoginView: View {
                                 .frame(width: 40, height: 40)
                                 .overlay {
                                     if let photo = user.primaryPhoto {
-                                        AsyncImage(url: URL(string: photo)) { image in
+                                        AsyncImage(url: AppConfig.resolvePhotoURL(photo)) { image in
                                             image.resizable().scaledToFill()
                                         } placeholder: {
                                             Image(systemName: "person.fill")

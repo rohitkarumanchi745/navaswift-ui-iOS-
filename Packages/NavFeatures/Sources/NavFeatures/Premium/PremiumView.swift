@@ -4,34 +4,71 @@ import NavCore
 import NavNetworking
 import NavServices
 
+// MARK: - Fallback Plan (when StoreKit products unavailable)
+
+private struct FallbackPlan: Identifiable {
+    let id: String
+    let tier: PremiumTier
+    let price: String
+    let period: String
+
+    static let all: [FallbackPlan] = [
+        FallbackPlan(id: StoreProductID.goldMonthly.rawValue, tier: .gold, price: "$9.99", period: "/mo"),
+        FallbackPlan(id: StoreProductID.platinumMonthly.rawValue, tier: .platinum, price: "$19.99", period: "/mo"),
+        FallbackPlan(id: StoreProductID.ultraMonthly.rawValue, tier: .ultra, price: "$29.99", period: "/mo"),
+    ]
+}
+
 struct PremiumView: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var storeKit: StoreKitManager
     @State private var selectedProduct: Product?
+    @State private var selectedFallback: FallbackPlan?
     @State private var isStudentVerified = false
     @State private var animateIn = false
     @State private var showError = false
     @State private var errorMessage = ""
 
-    private let perks: [(icon: String, title: String, description: String)] = [
-        ("heart.fill", "Unlimited Likes", "Like as many profiles as you want"),
-        ("eye.fill", "See Who Likes You", "Know who's interested before you swipe"),
-        ("bolt.fill", "Priority Matching", "Be seen first by potential matches"),
-        ("arrow.uturn.left", "Undo Swipes", "Changed your mind? Go back"),
-        ("slider.horizontal.3", "Advanced Filters", "Filter by interests, height, and more"),
-        ("checkmark.message.fill", "Read Receipts", "Know when your messages are read"),
+    private struct PerkRow: Identifiable {
+        let id = UUID()
+        let icon: String
+        let title: String
+        let gold: Bool
+        let platinum: Bool
+        let ultra: Bool
+    }
+
+    private let perkRows: [PerkRow] = [
+        PerkRow(icon: "heart.fill",              title: "Unlimited Likes",      gold: true,  platinum: true,  ultra: true),
+        PerkRow(icon: "eye.fill",                title: "See Who Likes You",    gold: true,  platinum: true,  ultra: true),
+        PerkRow(icon: "star.fill",               title: "5 Super Likes / Day",  gold: true,  platinum: true,  ultra: true),
+        PerkRow(icon: "slider.horizontal.3",     title: "Advanced Filters",     gold: true,  platinum: true,  ultra: true),
+        PerkRow(icon: "bolt.fill",               title: "1 Free Boost / Month", gold: true,  platinum: true,  ultra: true),
+        PerkRow(icon: "arrow.uturn.left",        title: "Undo Last Swipe",      gold: false, platinum: true,  ultra: true),
+        PerkRow(icon: "sparkles",                title: "Priority Matching",    gold: false, platinum: true,  ultra: true),
+        PerkRow(icon: "checkmark.message.fill",  title: "Read Receipts",        gold: false, platinum: true,  ultra: true),
+        PerkRow(icon: "flame.fill",              title: "Weekly Boost",         gold: false, platinum: true,  ultra: true),
+        PerkRow(icon: "star.circle.fill",        title: "Unlimited Super Likes",gold: false, platinum: false, ultra: true),
+        PerkRow(icon: "eyes",                    title: "See All Likes Instantly",gold: false, platinum: false, ultra: true),
+        PerkRow(icon: "headphones.circle.fill",  title: "Priority Support",     gold: false, platinum: false, ultra: true),
+        PerkRow(icon: "party.popper.fill",       title: "Exclusive Events",     gold: false, platinum: false, ultra: true),
     ]
 
     var body: some View {
         ZStack {
-            Color(hex: "0F0F0F")
-                .ignoresSafeArea()
+            // Rich gradient background
+            LinearGradient(
+                colors: [Color(hex: "0A0A0F"), Color(hex: "141420"), Color(hex: "0A0A0F")],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
 
             VStack(spacing: 0) {
                 header
 
                 ScrollView(showsIndicators: false) {
-                    VStack(spacing: 24) {
+                    VStack(spacing: 28) {
                         heroSection
 
                         if isStudentVerified {
@@ -41,22 +78,20 @@ struct PremiumView: View {
                         if storeKit.isLoadingProducts {
                             loadingState
                         } else if storeKit.subscriptionProducts.isEmpty {
-                            errorState
+                            fallbackPlanCards
                         } else {
                             planCards
-                            perksGrid
-                            if selectedProduct != nil {
-                                selectedPlanFeatures
-                            }
                         }
+
+                        perksComparisonSection
 
                         restoreButton
                         termsText
                     }
-                    .padding(.bottom, 120)
+                    .padding(.bottom, 130)
                 }
 
-                if selectedProduct != nil {
+                if selectedProduct != nil || selectedFallback != nil {
                     bottomCTA
                 }
             }
@@ -66,7 +101,7 @@ struct PremiumView: View {
             }
         }
         .onAppear {
-            withAnimation(.easeOut(duration: 0.5)) { animateIn = true }
+            withAnimation(.easeOut(duration: 0.6)) { animateIn = true }
             fetchStudentStatus()
             autoSelectDefault()
         }
@@ -97,10 +132,10 @@ struct PremiumView: View {
         HStack {
             Button { dismiss() } label: {
                 Image(systemName: "xmark")
-                    .font(.title3.bold())
-                    .foregroundColor(.white)
-                    .padding(10)
-                    .background(Color.white.opacity(0.1))
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundColor(.white.opacity(0.7))
+                    .frame(width: 36, height: 36)
+                    .background(Color.white.opacity(0.08))
                     .clipShape(Circle())
             }
 
@@ -108,35 +143,62 @@ struct PremiumView: View {
 
             HStack(spacing: 6) {
                 Image(systemName: "crown.fill")
+                    .font(.system(size: 14))
                     .foregroundColor(Color(hex: "D4AF37"))
                 Text("NAVA")
-                    .font(.headline.bold())
+                    .font(.system(size: 16, weight: .heavy))
                     .foregroundColor(.white)
+                    .tracking(1.5)
             }
 
             Spacer()
 
-            Color.clear.frame(width: 40, height: 40)
+            Color.clear.frame(width: 36, height: 36)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 20)
         .padding(.top, 8)
     }
 
     // MARK: - Hero
 
     private var heroSection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
+            // Animated crown icon
+            ZStack {
+                Circle()
+                    .fill(
+                        RadialGradient(
+                            colors: [Color(hex: "D4AF37").opacity(0.2), .clear],
+                            center: .center,
+                            startRadius: 5,
+                            endRadius: 40
+                        )
+                    )
+                    .frame(width: 80, height: 80)
+
+                Image(systemName: "crown.fill")
+                    .font(.system(size: 36))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [Color(hex: "F5D76E"), Color(hex: "D4AF37")],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            }
+            .scaleEffect(animateIn ? 1 : 0.5)
+
             Text("Upgrade to Premium")
-                .font(.title.bold())
+                .font(.system(size: 26, weight: .bold))
                 .foregroundColor(.white)
 
-            Text("Get more matches, see who likes you, and unlock exclusive features")
-                .font(.subheadline)
-                .foregroundColor(.gray)
+            Text("Get more matches and unlock exclusive features")
+                .font(.system(size: 15))
+                .foregroundColor(Color(hex: "8E8E9A"))
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
+                .padding(.horizontal, 40)
         }
-        .padding(.top, 16)
+        .padding(.top, 8)
         .opacity(animateIn ? 1 : 0)
         .offset(y: animateIn ? 0 : 20)
     }
@@ -147,14 +209,15 @@ struct PremiumView: View {
         HStack(spacing: 8) {
             Image(systemName: "graduationcap.fill")
                 .foregroundColor(Color(hex: "D4AF37"))
-            Text("Student verified — you may qualify for special offers!")
-                .font(.subheadline.bold())
+            Text("Student verified — special offers available!")
+                .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(Color(hex: "D4AF37"))
         }
-        .padding(.horizontal, 20)
-        .padding(.vertical, 12)
-        .background(Color(hex: "D4AF37").opacity(0.15))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(Color(hex: "D4AF37").opacity(0.12))
         .clipShape(Capsule())
+        .padding(.horizontal, 20)
     }
 
     // MARK: - Loading State
@@ -165,41 +228,178 @@ struct PremiumView: View {
                 .tint(Color(hex: "D4AF37"))
             Text("Loading plans...")
                 .font(.subheadline)
-                .foregroundColor(.gray)
+                .foregroundColor(Color(hex: "8E8E9A"))
         }
         .padding(.vertical, 40)
     }
 
-    // MARK: - Error State
+    // MARK: - Tier Card Styling
 
-    private var errorState: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "wifi.slash")
-                .font(.title)
-                .foregroundColor(.gray)
-            Text("Could not load plans")
-                .font(.subheadline)
-                .foregroundColor(.gray)
-            Button("Retry") {
-                Task { await storeKit.loadProducts() }
+    private func tierGradient(_ tier: PremiumTier, isSelected: Bool) -> LinearGradient {
+        switch tier {
+        case .gold:
+            return LinearGradient(
+                colors: isSelected
+                    ? [Color(hex: "2A2214"), Color(hex: "1C1708")]
+                    : [Color(hex: "1A1810"), Color(hex: "14130D")],
+                startPoint: .top, endPoint: .bottom
+            )
+        case .platinum:
+            return LinearGradient(
+                colors: isSelected
+                    ? [Color(hex: "221A30"), Color(hex: "17112A")]
+                    : [Color(hex: "1A1522"), Color(hex: "13101B")],
+                startPoint: .top, endPoint: .bottom
+            )
+        case .ultra:
+            return LinearGradient(
+                colors: isSelected
+                    ? [Color(hex: "142A28"), Color(hex: "0E201E")]
+                    : [Color(hex: "111E1D"), Color(hex: "0D1716")],
+                startPoint: .top, endPoint: .bottom
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func tierCardContent(
+        icon: String, name: String, price: String, period: String,
+        badge: String?, accent: Color, tier: PremiumTier, isSelected: Bool
+    ) -> some View {
+        let isRecommended = tier == .platinum
+
+        VStack(spacing: 0) {
+            // Badge area
+            if let badge = badge {
+                Text(badge)
+                    .font(.system(size: 9, weight: .heavy))
+                    .foregroundColor(.white)
+                    .tracking(0.5)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(
+                        LinearGradient(
+                            colors: [accent, accent.opacity(0.7)],
+                            startPoint: .leading, endPoint: .trailing
+                        )
+                    )
+                    .clipShape(Capsule())
+                    .padding(.bottom, 10)
+            } else {
+                Spacer().frame(height: 24)
             }
-            .font(.subheadline.bold())
-            .foregroundColor(Color(hex: "D4AF37"))
+
+            // Icon with colored glow
+            ZStack {
+                if isSelected {
+                    Circle()
+                        .fill(accent.opacity(0.15))
+                        .frame(width: 64, height: 64)
+                        .blur(radius: 8)
+                }
+
+                Image(systemName: icon)
+                    .font(.system(size: isRecommended ? 26 : 22, weight: .medium))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [accent, accent.opacity(0.6)],
+                            startPoint: .top, endPoint: .bottom
+                        )
+                    )
+                    .frame(width: 52, height: 52)
+                    .background(
+                        Circle()
+                            .fill(accent.opacity(isSelected ? 0.2 : 0.08))
+                    )
+                    .overlay(
+                        Circle()
+                            .stroke(accent.opacity(isSelected ? 0.4 : 0.1), lineWidth: 1)
+                    )
+            }
+            .padding(.bottom, 10)
+
+            // Name
+            Text(name)
+                .font(.system(size: 16, weight: .bold))
+                .foregroundColor(.white)
+                .padding(.bottom, 6)
+
+            // Divider line in accent color
+            RoundedRectangle(cornerRadius: 1)
+                .fill(accent.opacity(0.3))
+                .frame(width: 30, height: 2)
+                .padding(.bottom, 8)
+
+            // Price
+            Text(price)
+                .font(.system(size: 22, weight: .heavy))
+                .foregroundColor(accent)
+
+            Text(period)
+                .font(.system(size: 11))
+                .foregroundColor(Color(hex: "8E8E9A"))
+                .padding(.top, 1)
         }
-        .padding(.vertical, 40)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, isRecommended ? 22 : 18)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(tierGradient(tier, isSelected: isSelected))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(
+                    isSelected
+                        ? LinearGradient(colors: [accent, accent.opacity(0.3)], startPoint: .top, endPoint: .bottom)
+                        : LinearGradient(colors: [Color.white.opacity(0.08), Color.white.opacity(0.02)], startPoint: .top, endPoint: .bottom),
+                    lineWidth: isSelected ? 1.5 : 1
+                )
+        )
+        .scaleEffect(isSelected ? 1.04 : 1)
+        .shadow(color: isSelected ? accent.opacity(0.3) : .clear, radius: 16, y: 6)
     }
 
-    // MARK: - Plan Cards
+    // MARK: - Fallback Plan Cards
+
+    private var fallbackPlanCards: some View {
+        HStack(alignment: .bottom, spacing: 10) {
+            ForEach(FallbackPlan.all) { plan in
+                fallbackPlanCard(plan)
+            }
+        }
+        .padding(.horizontal, 20)
+    }
+
+    private func fallbackPlanCard(_ plan: FallbackPlan) -> some View {
+        let isSelected = selectedFallback?.id == plan.id
+
+        return Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                selectedFallback = plan
+            }
+        } label: {
+            tierCardContent(
+                icon: plan.tier.icon,
+                name: plan.tier.displayName,
+                price: plan.price,
+                period: plan.period,
+                badge: plan.tier.badge,
+                accent: plan.tier.accentColor,
+                tier: plan.tier,
+                isSelected: isSelected
+            )
+        }
+    }
+
+    // MARK: - Plan Cards (StoreKit)
 
     private var planCards: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 12) {
-                ForEach(storeKit.subscriptionProducts, id: \.id) { product in
-                    planCard(product)
-                }
+        HStack(alignment: .bottom, spacing: 10) {
+            ForEach(storeKit.subscriptionProducts, id: \.id) { product in
+                planCard(product)
             }
-            .padding(.horizontal, 16)
         }
+        .padding(.horizontal, 20)
     }
 
     private func tierFor(_ product: Product) -> PremiumTier? {
@@ -209,136 +409,135 @@ struct PremiumView: View {
     private func planCard(_ product: Product) -> some View {
         let isSelected = selectedProduct?.id == product.id
         let tier = tierFor(product)
-        let accent = tier?.accentColor ?? .gray
 
         return Button {
-            withAnimation(.spring(response: 0.3)) {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
                 selectedProduct = product
             }
         } label: {
-            VStack(spacing: 10) {
-                if let badge = tier?.badge {
-                    Text(badge)
-                        .font(.caption2.bold())
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(accent)
-                        .clipShape(Capsule())
-                } else {
-                    Color.clear.frame(height: 18)
-                }
-
-                Image(systemName: tier?.icon ?? "questionmark")
-                    .font(.title2)
-                    .foregroundColor(isSelected ? .white : accent)
-                    .frame(width: 44, height: 44)
-                    .background(
-                        isSelected ?
-                        AnyShapeStyle(accent) :
-                        AnyShapeStyle(accent.opacity(0.15))
-                    )
-                    .clipShape(Circle())
-
-                Text(tier?.displayName ?? product.displayName)
-                    .font(.subheadline.bold())
-                    .foregroundColor(.white)
-
-                Text(product.displayPrice)
-                    .font(.headline.bold())
-                    .foregroundColor(accent)
-
-                if let sub = product.subscription {
-                    Text(periodLabel(sub.subscriptionPeriod))
-                        .font(.caption2)
-                        .foregroundColor(.gray)
-                }
-            }
-            .frame(width: 110)
-            .padding(.vertical, 16)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(isSelected ? Color(hex: "252525") : Color(hex: "1A1A1A"))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(isSelected ? accent : Color(hex: "333333"),
-                                    lineWidth: isSelected ? 2 : 1)
-                    )
+            tierCardContent(
+                icon: tier?.icon ?? "questionmark",
+                name: tier?.displayName ?? product.displayName,
+                price: product.displayPrice,
+                period: tier != nil && product.subscription != nil
+                    ? periodLabel(product.subscription!.subscriptionPeriod)
+                    : "",
+                badge: tier?.badge,
+                accent: tier?.accentColor ?? .gray,
+                tier: tier ?? .gold,
+                isSelected: isSelected
             )
-            .scaleEffect(isSelected ? 1.05 : 1)
         }
     }
 
-    // MARK: - Perks Grid
+    // MARK: - Perks Comparison
 
-    private var perksGrid: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Premium Perks")
-                .font(.headline)
+    private var selectedTier: PremiumTier? {
+        if let product = selectedProduct, let tier = tierFor(product) {
+            return tier
+        } else if let fb = selectedFallback {
+            return fb.tier
+        }
+        return nil
+    }
+
+    private var perksComparisonSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Compare Plans")
+                .font(.system(size: 18, weight: .bold))
                 .foregroundColor(.white)
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 20)
 
-            LazyVGrid(columns: [
-                GridItem(.flexible(), spacing: 12),
-                GridItem(.flexible(), spacing: 12),
-            ], spacing: 12) {
-                ForEach(perks, id: \.title) { perk in
-                    VStack(spacing: 10) {
-                        Image(systemName: perk.icon)
-                            .font(.title2)
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [AppColors.primary, Color(hex: "FF8E53")],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
+            // Column headers
+            HStack(spacing: 0) {
+                Text("Feature")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(Color(hex: "8E8E9A"))
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
-                        Text(perk.title)
-                            .font(.subheadline.bold())
-                            .foregroundColor(.white)
-
-                        Text(perk.description)
-                            .font(.caption2)
-                            .foregroundColor(.gray)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(16)
-                    .background(Color(hex: "1A1A1A"))
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                ForEach(PremiumTier.allCases, id: \.self) { tier in
+                    Text(tier.displayName)
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundColor(tier.accentColor)
+                        .frame(width: 52)
                 }
             }
             .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Color(hex: "12121A"))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal, 20)
+
+            // Perk rows
+            VStack(spacing: 0) {
+                ForEach(Array(perkRows.enumerated()), id: \.element.id) { index, perk in
+                    let isHighlighted = highlightForSelectedTier(perk)
+
+                    HStack(spacing: 0) {
+                        HStack(spacing: 10) {
+                            Image(systemName: perk.icon)
+                                .font(.system(size: 13))
+                                .foregroundColor(isHighlighted ? .white : Color(hex: "8E8E9A"))
+                                .frame(width: 28, height: 28)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 7)
+                                        .fill(isHighlighted ? (selectedTier?.accentColor ?? .white).opacity(0.15) : Color.white.opacity(0.04))
+                                )
+
+                            Text(perk.title)
+                                .font(.system(size: 13, weight: isHighlighted ? .semibold : .regular))
+                                .foregroundColor(isHighlighted ? .white : Color(hex: "8E8E9A"))
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                        perkIndicator(included: perk.gold, tier: .gold)
+                            .frame(width: 52)
+                        perkIndicator(included: perk.platinum, tier: .platinum)
+                            .frame(width: 52)
+                        perkIndicator(included: perk.ultra, tier: .ultra)
+                            .frame(width: 52)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(isHighlighted ? (selectedTier?.accentColor ?? .clear).opacity(0.05) : .clear)
+
+                    if index < perkRows.count - 1 {
+                        Divider()
+                            .background(Color.white.opacity(0.04))
+                            .padding(.leading, 54)
+                    }
+                }
+            }
+            .background(Color(hex: "15151F"))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(Color.white.opacity(0.06), lineWidth: 1)
+            )
+            .padding(.horizontal, 20)
         }
     }
 
-    // MARK: - Selected Plan Features
+    private func highlightForSelectedTier(_ perk: PerkRow) -> Bool {
+        guard let tier = selectedTier else { return false }
+        switch tier {
+        case .gold: return perk.gold
+        case .platinum: return perk.platinum
+        case .ultra: return perk.ultra
+        }
+    }
 
-    private var selectedPlanFeatures: some View {
-        Group {
-            if let product = selectedProduct, let tier = tierFor(product) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("\(tier.displayName) includes:")
-                        .font(.headline)
-                        .foregroundColor(.white)
-
-                    ForEach(tier.features, id: \.self) { feature in
-                        HStack(spacing: 10) {
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundColor(.green)
-                            Text(feature)
-                                .font(.subheadline)
-                                .foregroundColor(.white.opacity(0.9))
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(20)
-                .background(Color(hex: "1A1A1A"))
-                .clipShape(RoundedRectangle(cornerRadius: 16))
-                .padding(.horizontal, 16)
-            }
+    @ViewBuilder
+    private func perkIndicator(included: Bool, tier: PremiumTier) -> some View {
+        if included {
+            Image(systemName: "checkmark")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundColor(tier.accentColor)
+        } else {
+            Image(systemName: "minus")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(Color(hex: "3A3A44"))
         }
     }
 
@@ -349,65 +548,111 @@ struct PremiumView: View {
             Task { await storeKit.restorePurchases() }
         } label: {
             Text("Restore Purchases")
-                .font(.subheadline)
-                .foregroundColor(.gray)
+                .font(.system(size: 14))
+                .foregroundColor(Color(hex: "8E8E9A"))
         }
     }
 
     // MARK: - Terms
 
     private var termsText: some View {
-        Text("Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless it is canceled at least 24 hours before the end of the current period. Your account will be charged for renewal within 24 hours prior to the end of the current period. You can manage and cancel your subscriptions in your App Store account settings.")
-            .font(.caption2)
-            .foregroundColor(Color(hex: "666666"))
+        Text("Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period.")
+            .font(.system(size: 10))
+            .foregroundColor(Color(hex: "555555"))
             .multilineTextAlignment(.center)
-            .padding(.horizontal, 24)
+            .padding(.horizontal, 30)
     }
 
     // MARK: - Bottom CTA
 
     private var bottomCTA: some View {
-        VStack(spacing: 12) {
+        let tierName: String = {
+            if let product = selectedProduct, let tier = tierFor(product) {
+                return tier.displayName
+            } else if let fb = selectedFallback {
+                return fb.tier.displayName
+            }
+            return ""
+        }()
+
+        let priceText: String = {
+            if let product = selectedProduct {
+                return product.displayPrice
+            } else if let fb = selectedFallback {
+                return fb.price
+            }
+            return ""
+        }()
+
+        let accent: Color = {
+            if let product = selectedProduct, let tier = tierFor(product) {
+                return tier.accentColor
+            } else if let fb = selectedFallback {
+                return fb.tier.accentColor
+            }
+            return AppColors.primary
+        }()
+
+        return VStack(spacing: 10) {
             Button {
-                guard let product = selectedProduct else { return }
-                Task { await storeKit.purchase(product) }
+                if let product = selectedProduct {
+                    Task { await storeKit.purchase(product) }
+                } else if selectedFallback != nil {
+                    Task {
+                        // Retry loading products in case StoreKit wasn't ready
+                        await storeKit.loadProducts()
+                        if let fb = selectedFallback,
+                           let product = storeKit.subscriptionProducts.first(where: { $0.id == fb.id }) {
+                            selectedProduct = product
+                            selectedFallback = nil
+                            await storeKit.purchase(product)
+                        } else {
+                            errorMessage = "Could not load App Store products. Please ensure you have an internet connection and try again later."
+                            showError = true
+                        }
+                    }
+                }
             } label: {
-                HStack {
+                HStack(spacing: 8) {
                     if storeKit.purchaseState == .purchasing {
                         ProgressView()
                             .tint(.white)
                     }
-                    let tier = selectedProduct.flatMap { tierFor($0) }
                     Text(storeKit.purchaseState == .purchasing
                          ? "Processing..."
-                         : "Get \(tier?.displayName ?? "") — \(selectedProduct?.displayPrice ?? "")")
-                        .font(.headline)
+                         : "Get \(tierName) — \(priceText)")
+                        .font(.system(size: 17, weight: .bold))
                 }
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 18)
+                .padding(.vertical, 17)
                 .background(
                     LinearGradient(
-                        colors: [AppColors.primary, Color(hex: "FF8E53")],
+                        colors: [accent, accent.opacity(0.7)],
                         startPoint: .leading,
                         endPoint: .trailing
                     )
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .shadow(color: accent.opacity(0.3), radius: 8, y: 4)
             }
             .disabled(storeKit.purchaseState == .purchasing)
 
             Button { dismiss() } label: {
                 Text("Maybe later")
-                    .font(.subheadline)
-                    .foregroundColor(.gray)
+                    .font(.system(size: 14))
+                    .foregroundColor(Color(hex: "666666"))
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
         .background(
-            Color(hex: "0F0F0F")
-                .shadow(color: .black.opacity(0.5), radius: 10, y: -5)
+            LinearGradient(
+                colors: [Color(hex: "0A0A0F").opacity(0), Color(hex: "0A0A0F")],
+                startPoint: .top,
+                endPoint: .center
+            )
         )
     }
 
@@ -442,9 +687,15 @@ struct PremiumView: View {
     // MARK: - Helpers
 
     private func autoSelectDefault() {
-        guard selectedProduct == nil, !storeKit.subscriptionProducts.isEmpty else { return }
-        let idx = storeKit.subscriptionProducts.count / 2
-        selectedProduct = storeKit.subscriptionProducts[idx]
+        if !storeKit.subscriptionProducts.isEmpty {
+            if selectedProduct == nil {
+                let idx = storeKit.subscriptionProducts.count / 2
+                selectedProduct = storeKit.subscriptionProducts[idx]
+            }
+            selectedFallback = nil
+        } else if selectedFallback == nil {
+            selectedFallback = FallbackPlan.all[1]
+        }
     }
 
     private func fetchStudentStatus() {
@@ -459,13 +710,13 @@ struct PremiumView: View {
     private func periodLabel(_ period: Product.SubscriptionPeriod) -> String {
         switch period.unit {
         case .day:
-            return period.value == 1 ? "per day" : "\(period.value) days"
+            return period.value == 1 ? "/day" : "/\(period.value)d"
         case .week:
-            return period.value == 1 ? "per week" : "\(period.value) weeks"
+            return period.value == 1 ? "/wk" : "/\(period.value)wk"
         case .month:
-            return period.value == 1 ? "per month" : "\(period.value) months"
+            return period.value == 1 ? "/mo" : "/\(period.value)mo"
         case .year:
-            return period.value == 1 ? "per year" : "\(period.value) years"
+            return period.value == 1 ? "/yr" : "/\(period.value)yr"
         @unknown default:
             return ""
         }

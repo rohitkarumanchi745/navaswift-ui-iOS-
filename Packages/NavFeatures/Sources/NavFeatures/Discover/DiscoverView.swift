@@ -10,6 +10,7 @@ struct DiscoverView: View {
     @State private var isLoading = true
     @State private var offset: CGSize = .zero
     @State private var showDetails = false
+    @State private var animateOrbs = false
 
     #if canImport(UIKit)
     private let screenWidth = UIScreen.main.bounds.width
@@ -19,109 +20,148 @@ struct DiscoverView: View {
     private var swipeThreshold: CGFloat { screenWidth * 0.25 }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            HStack {
-                Text("NAVA")
-                    .font(.system(size: 28, weight: .heavy))
-                    .foregroundStyle(AppColors.primary)
-                    .tracking(2)
+        ZStack {
+            // Dark gradient background
+            LinearGradient(
+                colors: [
+                    Color(hex: "1A1B2E"),
+                    Color(hex: "2D1B4E"),
+                    Color(hex: "1A1B2E")
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
 
-                Spacer()
+            // Floating orbs
+            Circle()
+                .fill(Color(hex: "9B7FCA").opacity(0.12))
+                .frame(width: 250, height: 250)
+                .blur(radius: 70)
+                .offset(x: -100, y: animateOrbs ? -200 : -160)
 
-                NavigationLink(destination: PreferencesView()) {
-                    Image(systemName: "slider.horizontal.3")
-                        .font(.system(size: 20))
-                        .frame(width: 40, height: 40)
-                        .background(.white)
-                        .clipShape(Circle())
-                        .shadow(color: .black.opacity(0.06), radius: 4, y: 2)
-                }
-            }
-            .padding(.horizontal, AppSpacing.lg)
-            .padding(.vertical, AppSpacing.md)
+            Circle()
+                .fill(Color(hex: "A8D8EA").opacity(0.08))
+                .frame(width: 200, height: 200)
+                .blur(radius: 60)
+                .offset(x: 120, y: animateOrbs ? 300 : 260)
 
-            if isLoading {
-                Spacer()
-                VStack(spacing: AppSpacing.lg) {
-                    ProgressView()
-                        .scaleEffect(1.2)
-                        .tint(AppColors.primary)
-                    Text("Finding people for you...")
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-            } else if currentIndex >= profiles.count {
-                // Empty state
-                Spacer()
-                VStack(spacing: AppSpacing.xl) {
-                    Circle()
-                        .fill(AppColors.primary.opacity(0.1))
-                        .frame(width: 120, height: 120)
-                        .overlay {
-                            Image(systemName: "heart")
-                                .font(.system(size: 48))
-                                .foregroundStyle(AppColors.primary)
-                        }
+            VStack(spacing: 0) {
+                // Header
+                HStack {
+                    Text("NAVA")
+                        .font(.system(size: 28, weight: .heavy))
+                        .foregroundStyle(Color(hex: "C9A0DC"))
+                        .tracking(2)
 
-                    Text("No more profiles")
-                        .font(.system(size: 24, weight: .bold))
+                    Spacer()
 
-                    Text("Check back later for new people in your area")
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-
-                    Button {
-                        fetchProfiles()
-                    } label: {
-                        Text("Refresh")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, AppSpacing.xxxl)
-                            .padding(.vertical, AppSpacing.md)
-                            .background(AppColors.brandGradient)
-                            .clipShape(Capsule())
-                    }
-                }
-                .padding(.horizontal, AppSpacing.xxxl)
-                Spacer()
-            } else {
-                // Card stack
-                ZStack {
-                    ForEach(Array(profiles[currentIndex..<min(currentIndex + 2, profiles.count)].enumerated().reversed()), id: \.element.id) { idx, profile in
-                        let isFirst = idx == 0
-                        SwipeCard(profile: profile, isFirst: isFirst, offset: isFirst ? offset : .zero, showDetails: isFirst && showDetails)
-                            .scaleEffect(isFirst ? 1.0 : 0.95)
-                            .offset(y: isFirst ? 0 : 10)
-                            .gesture(isFirst ? dragGesture : nil)
-                            .onTapGesture {
-                                if isFirst { showDetails.toggle() }
-                            }
+                    NavigationLink(destination: PreferencesView()) {
+                        Image(systemName: "slider.horizontal.3")
+                            .font(.system(size: 20))
+                            .foregroundColor(.white.opacity(0.8))
+                            .frame(width: 40, height: 40)
+                            .background(.white.opacity(0.1))
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 1))
                     }
                 }
                 .padding(.horizontal, AppSpacing.lg)
+                .padding(.vertical, AppSpacing.md)
 
-                // Action Buttons
-                if let profile = profiles[safe: currentIndex] {
-                    HStack(spacing: AppSpacing.md) {
-                        ActionCircleButton(icon: "arrow.uturn.backward", size: 44, color: AppColors.rewind) {}
-                        ActionCircleButton(icon: "xmark", size: 60, color: AppColors.pass, borderColor: AppColors.pass) {
-                            swipeLeft()
-                        }
-                        ActionCircleButton(icon: "star.fill", size: 52, color: AppColors.superLike, borderColor: AppColors.superLike) {
-                            handleSwipe(.superlike, profile: profile)
-                        }
-                        ActionCircleButton(icon: "heart.fill", size: 60, color: AppColors.like, borderColor: AppColors.like) {
-                            swipeRight()
-                        }
-                        ActionCircleButton(icon: "bolt.fill", size: 44, color: AppColors.boost) {}
+                if isLoading {
+                    Spacer()
+                    VStack(spacing: AppSpacing.lg) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                            .tint(Color(hex: "C9A0DC"))
+                        Text("Finding people for you...")
+                            .foregroundStyle(.white.opacity(0.5))
                     }
-                    .padding(.vertical, AppSpacing.xl)
+                    Spacer()
+                } else if currentIndex >= profiles.count {
+                    // Empty state
+                    Spacer()
+                    VStack(spacing: AppSpacing.xl) {
+                        Circle()
+                            .fill(Color(hex: "9B7FCA").opacity(0.15))
+                            .frame(width: 120, height: 120)
+                            .overlay {
+                                Image(systemName: "heart")
+                                    .font(.system(size: 48))
+                                    .foregroundStyle(Color(hex: "C9A0DC"))
+                            }
+
+                        Text("No more profiles")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundColor(.white)
+
+                        Text("Check back later for new people in your area")
+                            .foregroundStyle(.white.opacity(0.5))
+                            .multilineTextAlignment(.center)
+
+                        Button {
+                            fetchProfiles()
+                        } label: {
+                            Text("Refresh")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, AppSpacing.xxxl)
+                                .padding(.vertical, AppSpacing.md)
+                                .background(
+                                    LinearGradient(
+                                        colors: [Color(hex: "6C5CE7"), Color(hex: "845EC2")],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .clipShape(Capsule())
+                        }
+                    }
+                    .padding(.horizontal, AppSpacing.xxxl)
+                    Spacer()
+                } else {
+                    // Card stack
+                    ZStack {
+                        ForEach(Array(profiles[currentIndex..<min(currentIndex + 2, profiles.count)].enumerated().reversed()), id: \.element.id) { idx, profile in
+                            let isFirst = idx == 0
+                            SwipeCard(profile: profile, isFirst: isFirst, offset: isFirst ? offset : .zero, showDetails: isFirst && showDetails)
+                                .scaleEffect(isFirst ? 1.0 : 0.95)
+                                .offset(y: isFirst ? 0 : 10)
+                                .gesture(isFirst ? dragGesture : nil)
+                                .onTapGesture {
+                                    if isFirst { showDetails.toggle() }
+                                }
+                        }
+                    }
+                    .padding(.horizontal, AppSpacing.lg)
+
+                    // Action Buttons
+                    if let profile = profiles[safe: currentIndex] {
+                        HStack(spacing: AppSpacing.md) {
+                            ActionCircleButton(icon: "arrow.uturn.backward", size: 44, color: Color(hex: "D4A5C9")) {}
+                            ActionCircleButton(icon: "xmark", size: 60, color: Color(hex: "B0B0B0"), borderColor: Color(hex: "B0B0B0")) {
+                                swipeLeft()
+                            }
+                            ActionCircleButton(icon: "star.fill", size: 52, color: Color(hex: "A8D8EA"), borderColor: Color(hex: "A8D8EA")) {
+                                handleSwipe(.superlike, profile: profile)
+                            }
+                            ActionCircleButton(icon: "heart.fill", size: 60, color: Color(hex: "98D4BB"), borderColor: Color(hex: "98D4BB")) {
+                                swipeRight()
+                            }
+                            ActionCircleButton(icon: "bolt.fill", size: 44, color: Color(hex: "D4C5A0")) {}
+                        }
+                        .padding(.vertical, AppSpacing.xl)
+                    }
                 }
             }
         }
-        .background(Color(.systemGray6))
-        .onAppear { fetchProfiles() }
+        .onAppear {
+            fetchProfiles()
+            withAnimation(.easeInOut(duration: 4).repeatForever(autoreverses: true)) {
+                animateOrbs = true
+            }
+        }
     }
 
     private var dragGesture: some Gesture {
@@ -254,7 +294,7 @@ struct SwipeCard: View {
         VStack(spacing: 0) {
             ZStack(alignment: .bottom) {
                 // Photo
-                if let photoURL = profile.primaryPhoto, let url = URL(string: photoURL) {
+                if let url = AppConfig.resolvePhotoURL(profile.primaryPhoto) {
                     AsyncImage(url: url) { image in
                         image.resizable().scaledToFill()
                     } placeholder: {
@@ -329,10 +369,10 @@ struct SwipeCard: View {
                         HStack(spacing: 4) {
                             Image(systemName: "sparkles")
                                 .font(.system(size: 12))
-                                .foregroundStyle(AppColors.gold)
+                                .foregroundStyle(Color(hex: "D4C5A0"))
                             Text("\(score)% Match")
                                 .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(AppColors.gold)
+                                .foregroundStyle(Color(hex: "D4C5A0"))
                         }
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
@@ -398,10 +438,11 @@ struct SwipeCard: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("About")
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.white.opacity(0.4))
                                 .textCase(.uppercase)
                             Text(bio)
                                 .font(.system(size: 16))
+                                .foregroundColor(.white.opacity(0.85))
                                 .lineSpacing(4)
                         }
                     }
@@ -409,16 +450,16 @@ struct SwipeCard: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("Interests")
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.white.opacity(0.4))
                                 .textCase(.uppercase)
                             FlowLayout(spacing: 8) {
                                 ForEach(interests, id: \.self) { interest in
                                     Text(interest)
                                         .font(.system(size: 14, weight: .medium))
-                                        .foregroundStyle(AppColors.primary)
+                                        .foregroundStyle(Color(hex: "C9A0DC"))
                                         .padding(.horizontal, AppSpacing.md)
                                         .padding(.vertical, AppSpacing.sm)
-                                        .background(AppColors.primary.opacity(0.1))
+                                        .background(Color(hex: "C9A0DC").opacity(0.12))
                                         .clipShape(Capsule())
                                 }
                             }
@@ -427,7 +468,7 @@ struct SwipeCard: View {
                 }
                 .padding(AppSpacing.lg)
                 .frame(maxHeight: 200)
-                .background(.white)
+                .background(Color(hex: "1A1B2E"))
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.xl))
@@ -451,14 +492,15 @@ struct ActionCircleButton: View {
                 .font(.system(size: size * 0.35))
                 .foregroundStyle(color)
                 .frame(width: size, height: size)
-                .background(.white)
+                .background(.white.opacity(0.1))
                 .clipShape(Circle())
                 .overlay {
                     if let border = borderColor {
-                        Circle().strokeBorder(border, lineWidth: 2)
+                        Circle().strokeBorder(border.opacity(0.5), lineWidth: 2)
+                    } else {
+                        Circle().stroke(.white.opacity(0.1), lineWidth: 1)
                     }
                 }
-                .shadow(color: .black.opacity(0.1), radius: 8, y: 4)
         }
     }
 }

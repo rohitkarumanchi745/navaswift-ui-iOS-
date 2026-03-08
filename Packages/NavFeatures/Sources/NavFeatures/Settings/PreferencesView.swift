@@ -10,11 +10,18 @@ struct PreferencesView: View {
     @State private var intent = "long_term"
     @State private var languages: Set<String> = []
     @State private var genders: Set<String> = []
+    @State private var professions: Set<String> = []
     @State private var onlyVerified = false
     @State private var loading = true
     @State private var saving = false
     @State private var showAlert = false
     @State private var alertMessage = ""
+
+    private let professionOptions = [
+        "Software Engineer", "Doctor", "Designer", "Teacher",
+        "Business Owner", "Lawyer", "Finance", "Marketing",
+        "Student", "Artist", "Freelancer", "Government",
+    ]
 
     private let intentOptions = [
         ("long_term", "Long-term"), ("short_term", "Short-term"),
@@ -82,6 +89,17 @@ struct PreferencesView: View {
                                 chipButton(label: option.1, isSelected: genders.contains(option.0)) {
                                     if genders.contains(option.0) { genders.remove(option.0) }
                                     else { genders.insert(option.0) }
+                                }
+                            }
+                        }
+                    }
+
+                    preferenceSection(title: "Profession") {
+                        FlowLayout(spacing: 10) {
+                            ForEach(professionOptions, id: \.self) { prof in
+                                chipButton(label: prof, isSelected: professions.contains(prof)) {
+                                    if professions.contains(prof) { professions.remove(prof) }
+                                    else { professions.insert(prof) }
                                 }
                             }
                         }
@@ -159,7 +177,7 @@ struct PreferencesView: View {
             let query = """
             query MyPreferences {
                 myPreferences {
-                    minAge maxAge maxDistanceKm preferredGenders onlyVerified
+                    minAge maxAge maxDistanceKm preferredGenders preferredProfessions onlyVerified
                 }
             }
             """
@@ -169,6 +187,7 @@ struct PreferencesView: View {
                 if let max = prefs["maxAge"] as? Int { ageMax = String(max) }
                 if let km = prefs["maxDistanceKm"] as? Int { distance = String(Int(Double(km) * 0.621)) }
                 if let g = prefs["preferredGenders"] as? [String] { genders = Set(g) }
+                if let p = prefs["preferredProfessions"] as? [String] { professions = Set(p) }
                 if let v = prefs["onlyVerified"] as? Bool { onlyVerified = v }
             }
         } catch {}
@@ -190,6 +209,7 @@ struct PreferencesView: View {
                     "input": [
                         "minAge": Int(ageMin) ?? 18, "maxAge": Int(ageMax) ?? 50,
                         "maxDistanceKm": distanceKm, "preferredGenders": Array(genders),
+                        "preferredProfessions": Array(professions),
                         "onlyVerified": onlyVerified,
                     ]
                 ]

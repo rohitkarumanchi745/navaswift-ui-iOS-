@@ -23,6 +23,50 @@ public struct UserProfile: Codable, Identifiable, Equatable {
     public var lookingFor: String?
     public var voiceIntroUrl: String?
 
+    enum CodingKeys: String, CodingKey {
+        case id, name, dob, age, gender, bio, location, profession, interests, languages
+        case phoneNumber = "phone_number"
+        case professionCategory = "profession_category"
+        case professionTitle = "profession_title"
+        case photos
+        case isProfileComplete = "is_profile_complete"
+        case isVerified = "is_verified"
+        case isStudentVerified = "is_student_verified"
+        case heightCm = "height_cm"
+        case lookingFor = "looking_for"
+        case voiceIntroUrl = "voice_intro_url"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let stringId = try? container.decode(String.self, forKey: .id) {
+            id = stringId
+        } else if let intId = try? container.decode(Int.self, forKey: .id) {
+            id = String(intId)
+        } else {
+            id = ""
+        }
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        phoneNumber = try container.decodeIfPresent(String.self, forKey: .phoneNumber)
+        dob = try container.decodeIfPresent(String.self, forKey: .dob)
+        age = try container.decodeIfPresent(Int.self, forKey: .age)
+        gender = try container.decodeIfPresent(String.self, forKey: .gender)
+        bio = try container.decodeIfPresent(String.self, forKey: .bio)
+        location = try container.decodeIfPresent(String.self, forKey: .location)
+        profession = try container.decodeIfPresent(String.self, forKey: .profession)
+        professionCategory = try container.decodeIfPresent(String.self, forKey: .professionCategory)
+        professionTitle = try container.decodeIfPresent(String.self, forKey: .professionTitle)
+        interests = try container.decodeIfPresent([String].self, forKey: .interests)
+        photos = try container.decodeIfPresent([String].self, forKey: .photos)
+        isProfileComplete = try container.decodeIfPresent(Bool.self, forKey: .isProfileComplete)
+        isVerified = try container.decodeIfPresent(Bool.self, forKey: .isVerified)
+        isStudentVerified = try container.decodeIfPresent(Bool.self, forKey: .isStudentVerified)
+        heightCm = try container.decodeIfPresent(Int.self, forKey: .heightCm)
+        languages = try container.decodeIfPresent([String].self, forKey: .languages)
+        lookingFor = try container.decodeIfPresent(String.self, forKey: .lookingFor)
+        voiceIntroUrl = try container.decodeIfPresent(String.self, forKey: .voiceIntroUrl)
+    }
+
     public init(id: String, name: String? = nil, phoneNumber: String? = nil, dob: String? = nil,
                 age: Int? = nil, gender: String? = nil, bio: String? = nil, location: String? = nil,
                 profession: String? = nil, professionCategory: String? = nil, professionTitle: String? = nil,
@@ -49,7 +93,7 @@ public struct UserProfile: Codable, Identifiable, Equatable {
     }
 }
 
-public struct DiscoverProfile: Identifiable, Equatable {
+public struct DiscoverProfile: Codable, Identifiable, Equatable {
     public let id: String
     public var name: String?
     public var age: Int?
@@ -66,6 +110,41 @@ public struct DiscoverProfile: Identifiable, Equatable {
     public var languages: [String]?
 
     public var primaryPhoto: String? { photos?.first }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, age, location, bio, interests, languages
+        case profession = "profession_title"
+        case compatibilityScore = "compatibility_score"
+        case photos
+        case isVerified = "is_verified"
+        case voiceIntroUrl = "voice_intro_url"
+        case hasVoiceIntro = "has_voice_intro"
+        case hasReels = "has_reels"
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let stringId = try? container.decode(String.self, forKey: .id) {
+            id = stringId
+        } else if let intId = try? container.decode(Int.self, forKey: .id) {
+            id = String(intId)
+        } else {
+            id = ""
+        }
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        age = try container.decodeIfPresent(Int.self, forKey: .age)
+        location = try container.decodeIfPresent(String.self, forKey: .location)
+        profession = try container.decodeIfPresent(String.self, forKey: .profession)
+        compatibilityScore = try container.decodeIfPresent(Int.self, forKey: .compatibilityScore)
+        bio = try container.decodeIfPresent(String.self, forKey: .bio)
+        interests = try container.decodeIfPresent([String].self, forKey: .interests)
+        photos = try container.decodeIfPresent([String].self, forKey: .photos)
+        isVerified = try container.decodeIfPresent(Bool.self, forKey: .isVerified) ?? false
+        voiceIntroUrl = try container.decodeIfPresent(String.self, forKey: .voiceIntroUrl)
+        hasVoiceIntro = try container.decodeIfPresent(Bool.self, forKey: .hasVoiceIntro) ?? false
+        hasReels = try container.decodeIfPresent(Bool.self, forKey: .hasReels) ?? false
+        languages = try container.decodeIfPresent([String].self, forKey: .languages)
+    }
 
     public init(id: String, name: String? = nil, age: Int? = nil, location: String? = nil,
                 profession: String? = nil, compatibilityScore: Int? = nil, bio: String? = nil,
@@ -122,6 +201,33 @@ public struct ChatMessage: Identifiable, Equatable {
                 content: String, createdAt: Date? = nil, status: MessageStatus = .sending) {
         self.id = id; self.matchId = matchId; self.senderId = senderId; self.receiverId = receiverId
         self.content = content; self.createdAt = createdAt; self.status = status
+    }
+
+    public static func demoConversation(matchId: String, meId: Int, partnerId: Int, partnerName: String) -> [ChatMessage] {
+        let now = Date()
+        let msgs: [(String, Bool, TimeInterval)] = [
+            ("Hey \(partnerName)! Love your profile", true, -3600),
+            ("Hii! Thanks, yours is great too", false, -3500),
+            ("So what do you do for fun?", true, -3200),
+            ("I love hiking and trying new restaurants. You?", false, -3000),
+            ("Same! Have you been to any good places recently?", true, -2700),
+            ("Yes! There's this amazing rooftop cafe downtown", false, -2500),
+            ("Oh nice, we should check it out sometime", true, -2200),
+            ("That sounds fun! I'd love to", false, -1800),
+            ("How about this weekend?", true, -600),
+            ("Sounds like a plan!", false, -300),
+        ]
+        return msgs.enumerated().map { i, m in
+            ChatMessage(
+                id: "demo-msg-\(i)",
+                matchId: matchId,
+                senderId: m.1 ? meId : partnerId,
+                receiverId: m.1 ? partnerId : meId,
+                content: m.0,
+                createdAt: now.addingTimeInterval(m.2),
+                status: .read
+            )
+        }
     }
 }
 

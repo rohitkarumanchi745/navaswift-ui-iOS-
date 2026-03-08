@@ -67,7 +67,9 @@ public class StoreKitManager: ObservableObject {
 
         do {
             let productIDs = Set(StoreProductID.allCases.map(\.rawValue))
+            print("[StoreKit] Requesting products: \(productIDs)")
             let storeProducts = try await Product.products(for: productIDs)
+            print("[StoreKit] Loaded \(storeProducts.count) products: \(storeProducts.map(\.id))")
 
             products = storeProducts.sorted { $0.price < $1.price }
             subscriptionProducts = storeProducts
@@ -76,8 +78,9 @@ public class StoreKitManager: ObservableObject {
             consumableProducts = storeProducts
                 .filter { $0.type == .consumable }
                 .sorted { $0.price < $1.price }
+            print("[StoreKit] Subscriptions: \(subscriptionProducts.count), Consumables: \(consumableProducts.count)")
         } catch {
-            // Products failed to load — view will show retry
+            print("[StoreKit] Failed to load products: \(error)")
         }
     }
 
@@ -167,6 +170,7 @@ public class StoreKitManager: ObservableObject {
                     "product_id": backendID,
                     "original_transaction_id": "\(transaction.originalID)",
                     "environment": "\(transaction.environment.rawValue)",
+                    "bundle_id": Bundle.main.bundleIdentifier ?? "",
                 ]
             )
         } catch {

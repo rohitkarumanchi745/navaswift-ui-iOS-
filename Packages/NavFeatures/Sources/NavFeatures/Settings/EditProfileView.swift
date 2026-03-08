@@ -230,7 +230,7 @@ struct EditProfileView: View {
                     RoundedRectangle(cornerRadius: 20).fill(AppColors.inputBackground).frame(height: 200)
                         .overlay {
                             if let firstPhoto = auth.user?.photos?.first, !firstPhoto.isEmpty {
-                                AsyncImage(url: URL(string: firstPhoto)) { image in
+                                AsyncImage(url: AppConfig.resolvePhotoURL(firstPhoto)) { image in
                                     image.resizable().scaledToFill()
                                 } placeholder: { addPhotoPlaceholder }
                                 .clipShape(RoundedRectangle(cornerRadius: 20))
@@ -245,7 +245,7 @@ struct EditProfileView: View {
                             .overlay {
                                 let photos = auth.user?.photos ?? []
                                 if index < photos.count, !photos[index].isEmpty {
-                                    AsyncImage(url: URL(string: photos[index])) { image in
+                                    AsyncImage(url: AppConfig.resolvePhotoURL(photos[index])) { image in
                                         image.resizable().scaledToFill()
                                     } placeholder: { smallAddPlaceholder }
                                     .clipShape(RoundedRectangle(cornerRadius: 16))
@@ -323,7 +323,7 @@ struct EditProfileView: View {
                     $looking_for: String!, $interests: [String!]!, $languages: [String!]!,
                     $height_cm: Int, $profession_category: String, $profession_title: String
                 ) {
-                    updateProfile(
+                    update_profile(
                         name: $name, bio: $bio, gender: $gender, location: $location,
                         looking_for: $looking_for, interests: $interests, languages: $languages,
                         height_cm: $height_cm, profession_category: $profession_category,

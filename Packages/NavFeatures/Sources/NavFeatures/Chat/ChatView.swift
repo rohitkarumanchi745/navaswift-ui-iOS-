@@ -12,8 +12,9 @@ struct ChatView: View {
     @State private var isLoading = true
     @State private var hasMoreMessages = true
     @State private var isLoadingMore = false
-    @State private var showCallAlert = false
-    @State private var callAlertMessage = ""
+    @EnvironmentObject var callManager: CallManager
+    @State private var showCallView = false
+    @State private var showProfileDetail = false
     @StateObject private var ws = ChatWebSocket()
     @FocusState private var isInputFocused: Bool
     @Environment(\.dismiss) private var dismiss
@@ -33,37 +34,39 @@ struct ChatView: View {
                         .foregroundStyle(.white)
                 }
 
-                AsyncImage(url: URL(string: match.photo)) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    Circle().fill(Color(hex: "2A3942"))
-                }
-                .frame(width: 40, height: 40)
-                .clipShape(Circle())
+                Button { showProfileDetail = true } label: {
+                    HStack(spacing: 12) {
+                        AsyncImage(url: AppConfig.resolvePhotoURL(match.photo)) { image in
+                            image.resizable().scaledToFill()
+                        } placeholder: {
+                            Circle().fill(Color(hex: "2A3942"))
+                        }
+                        .frame(width: 40, height: 40)
+                        .clipShape(Circle())
 
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(match.name)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.white)
-                    Text(match.isOnline ? "Online" : "Last seen recently")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color(hex: "8696A0"))
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(match.name)
+                                .font(.system(size: 17, weight: .semibold))
+                                .foregroundStyle(.white)
+                            Text(match.isOnline ? "Online" : "Last seen recently")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Color(hex: "8696A0"))
+                        }
+                    }
                 }
 
                 Spacer()
 
                 HStack(spacing: 4) {
                     Button {
-                        callAlertMessage = "Video calling \(match.name)..."
-                        showCallAlert = true
+                        startCall(type: .video)
                     } label: {
                         Image(systemName: "video.fill")
                             .foregroundStyle(.white)
                             .padding(10)
                     }
                     Button {
-                        callAlertMessage = "Voice calling \(match.name)..."
-                        showCallAlert = true
+                        startCall(type: .audio)
                     } label: {
                         Image(systemName: "phone.fill")
                             .foregroundStyle(.white)
@@ -212,10 +215,21 @@ struct ChatView: View {
                 messages.append(msg)
             }
         }
-        .alert("Call", isPresented: $showCallAlert) {
-            Button("OK") {}
-        } message: {
-            Text(callAlertMessage + "\n\nCalling feature coming soon!")
+        .fullScreenCover(isPresented: $showCallView) {
+            CallView()
+                .environmentObject(callManager)
+        }
+        .fullScreenCover(isPresented: $showProfileDetail) {
+            MatchProfileDetailView(
+                userId: match.id,
+                matchName: match.name,
+                matchPhoto: match.photo
+            )
+        }
+        .onChange(of: callManager.callState) { _, newState in
+            if case .idle = newState {
+                showCallView = false
+            }
         }
         .onTapGesture {
             isInputFocused = false
@@ -256,7 +270,18 @@ struct ChatView: View {
                 hasMoreMessages = parsed.count >= 50
             }
         } catch {
-            // Empty state will show
+            // Fall back to demo messages if API fails and no messages loaded
+            if offset == 0 && messages.isEmpty {
+                let partnerId = Int(match.id) ?? 999
+                let myId = meId ?? 1
+                messages = ChatMessage.demoConversation(
+                    matchId: match.matchId,
+                    meId: myId,
+                    partnerId: partnerId,
+                    partnerName: match.name
+                )
+                hasMoreMessages = false
+            }
         }
         isLoading = false
         isLoadingMore = false
@@ -329,6 +354,17 @@ struct ChatView: View {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return formatter.date(from: string)
+    }
+
+    private func startCall(type: CallManager.CallType) {
+        callManager.startCall(
+            type: type,
+            matchId: match.matchId,
+            partnerName: match.name,
+            partnerPhoto: match.photo,
+            token: auth.token ?? ""
+        )
+        showCallView = true
     }
 }
 
