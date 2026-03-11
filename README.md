@@ -5,20 +5,32 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 ## Features
 
 ### Discovery & Matching
-- **Swipe-based discovery** with like, pass, and super-like actions
+- **Swipe-based discovery** with like, pass, and swipe-up super-like gestures
+- **Super Like** flow with dedicated `POST /match/super-like` endpoint, animated stamp overlay, and feedback banner
 - **AI-powered insights** for match recommendations
 - **Location-based** proximity filtering with configurable distance
 - **University discovery** for student-verified profiles
+- **Sent Likes** view with super-liked vs regular likes separated into sections
+- **Matches** view with "Super Liked You" horizontal carousel and regular likes grid
+
+### Student Search
+- **University-grouped results** — search results grouped by university with sticky headers showing graduation cap icon, university name, and student count
+- **University autocomplete** — as-you-type dropdown combining trending universities + live API search (`/universities/search?q=...`)
+- **Name + university search** — typing a name shows all matching users grouped under their universities
+- **Advanced filters** — university, city, country, gender, age range, university tier
+- **Dynamic pagination** — 50-result limit when filtering by university, 20 otherwise
 
 ### Reels
 - **Short-form video reels** for profile expression
 - **Private messaging** on reels (Instagram-style DM via reel)
+- **Reel inbox** with conversation threads
+- **Reel message composer** with reply context
 - Video upload with caption and category tagging
 
 ### Chat & Communication
 - **Real-time WebSocket chat** with typing indicators and read receipts
 - **GraphQL-powered** message history with pagination
-- **Voice & video call** integration (WebRTC signaling)
+- **Voice & video call** integration (WebRTC signaling via `CallManager`)
 - Conversation list with unread badges
 
 ### Premium (StoreKit 2)
@@ -34,40 +46,135 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 - **Voice intro** recording and playback
 
 ### Profile & Settings
-- Profile editing with photo upload
+- Profile editing with photo upload and **university picker** (API-driven autocomplete)
 - Preference management (age range, distance, interests)
+- Notification preferences
+- Safety appeal submission
+- Content moderation status display
 - Account deletion (GDPR/App Store compliant)
 - Privacy policy and terms of service
 
+### Infrastructure
+- **Deep linking** support for navigating to profiles, matches, and reels
+- **Network monitoring** with connectivity status
+- **Network metrics** tracking for API performance
+- **Push notification** management
+- **Local caching** for offline data persistence
+- **Structured logging** via `NavLog` with categories
+
 ## Architecture
+
+The project uses a **Swift Package Manager (SPM)** modular architecture with 4 local packages:
 
 ```
 nava/
-├── Models/
-│   └── UserProfile.swift          # User, Match, Chat, Like models
-├── Services/
-│   ├── APIService.swift           # REST + GraphQL client with retry logic
-│   ├── AppConfig.swift            # Environment switching (dev/prod)
-│   ├── AuthService.swift          # OTP auth, token management, keychain
-│   ├── ChatWebSocket.swift        # WebSocket client for real-time chat
-│   ├── LocationService.swift      # CoreLocation + backend sync
-│   └── StoreKitManager.swift      # StoreKit 2 IAP management
-├── Theme/
-│   └── AppTheme.swift             # Colors, typography, design tokens
-├── Views/
-│   ├── AI/                        # AI match insights
-│   ├── Chat/                      # ChatView, ConversationsView
-│   ├── Discover/                  # Swipe card stack
-│   ├── Legal/                     # Privacy policy, terms
-│   ├── Matches/                   # Match list with premium gating
-│   ├── Onboarding/                # Landing, login, OTP, profile setup
-│   ├── Premium/                   # StoreKit 2 subscription UI
-│   ├── Profile/                   # User profile display
-│   ├── Reels/                     # Video reels feed + upload
-│   ├── Settings/                  # Edit profile, preferences, account
-│   └── Verification/              # Selfie, student, voice verification
-├── navaApp.swift                  # App entry point, environment injection
-└── Products.storekit              # StoreKit testing configuration
+├── nava/
+│   ├── navaApp.swift                  # App entry point, environment injection
+│   ├── Assets.xcassets                # Asset catalog
+│   ├── Products.storekit              # StoreKit testing configuration
+│   └── PrivacyInfo.xcprivacy          # Privacy manifest
+│
+├── Packages/
+│   ├── NavCore/                       # Shared models, theme, utilities
+│   │   └── Sources/NavCore/
+│   │       ├── Models/
+│   │       │   ├── UserProfile.swift          # User, Match, Chat models
+│   │       │   ├── StudentModels.swift        # Search, filters, student results
+│   │       │   ├── UniversityModels.swift     # University search/autocomplete models
+│   │       │   ├── GraphQLModels.swift        # GraphQL response types
+│   │       │   ├── ReelMessageModels.swift    # Reel messaging models
+│   │       │   ├── StoreProductID.swift       # IAP product identifiers
+│   │       │   └── ModerationStatus.swift     # Content moderation states
+│   │       ├── Theme/
+│   │       │   └── AppTheme.swift             # Colors, typography, spacing tokens
+│   │       ├── UI/
+│   │       │   ├── ErrorBanner.swift          # Reusable error banner
+│   │       │   ├── FlowLayout.swift           # Flow layout helper
+│   │       │   └── ModeratedPhotoView.swift   # Photo with moderation overlay
+│   │       ├── Extensions/
+│   │       │   └── Array+Safe.swift           # Safe array subscript
+│   │       ├── DeepLink.swift                 # Deep link routing
+│   │       ├── LocalCache.swift               # Disk-based caching
+│   │       └── Logger.swift                   # Structured logging (NavLog)
+│   │
+│   ├── NavNetworking/                 # API client layer
+│   │   └── Sources/NavNetworking/
+│   │       ├── APIService.swift               # REST + GraphQL client with retry
+│   │       └── AppConfig.swift                # Environment switching (dev/prod)
+│   │
+│   ├── NavServices/                   # Business logic services
+│   │   └── Sources/NavServices/
+│   │       ├── AuthManager.swift              # OTP auth, JWT tokens, keychain
+│   │       ├── StoreKitManager.swift          # StoreKit 2 IAP management
+│   │       ├── ChatWebSocket.swift            # WebSocket client for real-time chat
+│   │       ├── CallManager.swift              # WebRTC call signaling
+│   │       ├── LocationManager.swift          # CoreLocation + backend sync
+│   │       ├── NetworkMonitor.swift           # NWPathMonitor connectivity
+│   │       ├── NetworkMetrics.swift           # API latency/error tracking
+│   │       ├── PushNotificationManager.swift  # APNs registration + handling
+│   │       └── NotificationOutcome.swift      # Notification action results
+│   │
+│   └── NavFeatures/                   # All UI views
+│       └── Sources/NavFeatures/
+│           ├── MainTabView.swift              # Root tab navigation
+│           ├── Discover/
+│           │   ├── DiscoverView.swift         # Swipe card stack + super like
+│           │   └── SentLikesView.swift        # Sent likes with super like sections
+│           ├── Search/
+│           │   ├── StudentSearchView.swift    # Grouped university results + autocomplete
+│           │   ├── StudentCard.swift          # Student result card
+│           │   └── StudentFilterSheet.swift   # Filter modal
+│           ├── Matches/
+│           │   └── MatchesView.swift          # Match list with super like carousel
+│           ├── Chat/
+│           │   ├── ConversationsView.swift    # Conversation list
+│           │   ├── ChatView.swift             # Chat messages
+│           │   ├── CallView.swift             # Voice/video call UI
+│           │   └── MatchProfileDetailView.swift  # Profile detail from match
+│           ├── Reels/
+│           │   ├── ReelsView.swift            # Vertical reel feed
+│           │   ├── ReelConversationView.swift # Reel DM thread
+│           │   ├── ReelInboxView.swift        # Reel message inbox
+│           │   └── ReelMessageComposer.swift  # Reel message input
+│           ├── Premium/
+│           │   └── PremiumView.swift          # Subscription UI
+│           ├── Onboarding/
+│           │   ├── LandingView.swift          # Welcome screen
+│           │   ├── LoginView.swift            # Phone number entry
+│           │   ├── OtpVerificationView.swift  # OTP input
+│           │   ├── UpdateProfileView.swift    # Onboarding profile setup
+│           │   └── UniversityPickerView.swift # University autocomplete picker
+│           ├── Settings/
+│           │   ├── SettingsView.swift         # Settings menu
+│           │   ├── EditProfileView.swift      # Edit profile with university picker
+│           │   ├── PreferencesView.swift      # Match preferences
+│           │   ├── NotificationPreferencesView.swift  # Push notification settings
+│           │   └── SafetyAppealView.swift     # Appeal moderation decisions
+│           ├── Profile/
+│           │   └── ProfileView.swift          # User profile display
+│           ├── Verification/
+│           │   ├── SelfieVerificationView.swift   # Liveness selfie check
+│           │   ├── StudentVerificationView.swift  # University email OTP
+│           │   └── VoiceIntroView.swift           # Voice intro recording
+│           ├── AI/
+│           │   └── AIInsightsView.swift       # AI match insights
+│           └── Legal/
+│               ├── PrivacyPolicyView.swift    # Privacy policy
+│               └── TermsOfServiceView.swift   # Terms of service
+```
+
+### Package Dependency Graph
+
+```
+NavCore  (models, theme, utilities — no dependencies)
+   ↓
+NavNetworking  (API client — depends on NavCore)
+   ↓
+NavServices  (business logic — depends on NavCore + NavNetworking)
+   ↓
+NavFeatures  (all UI — depends on NavCore + NavNetworking + NavServices)
+   ↓
+nava app target  (entry point — depends on all packages)
 ```
 
 ## Tech Stack
@@ -75,6 +182,7 @@ nava/
 | Layer | Technology |
 |-------|-----------|
 | UI Framework | SwiftUI |
+| Architecture | SPM modular packages (NavCore → NavNetworking → NavServices → NavFeatures) |
 | State Management | `@StateObject`, `@EnvironmentObject`, `ObservableObject` |
 | Networking | `URLSession` with retry, GraphQL, REST |
 | Real-time | `URLSessionWebSocketTask` (native WebSocket) |
@@ -82,6 +190,7 @@ nava/
 | Auth | OTP via phone number, JWT tokens, Keychain storage |
 | Location | CoreLocation with backend sync |
 | Media | `AVPlayer` for reels, `AsyncImage` for photos |
+| Connectivity | `NWPathMonitor` for network status |
 
 ## Backend
 
@@ -101,7 +210,7 @@ This app connects to a [Rust/Axum backend](https://github.com/rohitkarumanchi745
 
 ### Run
 1. Clone the repository
-2. Open `nava.xcodeproj` in Xcode
+2. Open `nava.xcodeproj` in Xcode (SPM packages resolve automatically)
 3. For StoreKit testing: **Product > Scheme > Edit Scheme > Run > Options** → set StoreKit Configuration to `Products.storekit`
 4. Build and run on simulator or device
 
@@ -109,7 +218,7 @@ This app connects to a [Rust/Axum backend](https://github.com/rohitkarumanchi745
 - **Debug builds**: connect to `http://127.0.0.1:8080` (local backend)
 - **Release builds**: connect to `https://api.nava.app` (production)
 
-Configure in `Services/AppConfig.swift`.
+Configure in `Packages/NavNetworking/Sources/NavNetworking/AppConfig.swift`.
 
 ## API Endpoints Used
 
@@ -117,8 +226,12 @@ Configure in `Services/AppConfig.swift`.
 |---------|----------|--------|
 | Auth | `/send-otp`, `/verify-otp` | POST |
 | Profile | `/update-profile`, `/profile/me` | POST, GET |
-| Discovery | `/discover`, `/match/like`, `/match/pass` | GET, POST |
-| Chat | `/ws/chat` (WebSocket), `/graphql` | WS, POST |
+| Discovery | GraphQL `discover`, `likeUser`, `passUser` | POST |
+| Super Like | `/match/super-like` | POST |
+| Student Search | `/search/students?q=...&limit=...&offset=...` | GET |
+| Search Suggestions | `/search/students/suggestions` | GET |
+| University Autocomplete | `/universities/search?q=...&limit=8` | GET |
+| Chat | `/ws/chat` (WebSocket), GraphQL queries | WS, POST |
 | Reels | `/reels`, `/reels/feed`, `/reels/message` | POST, GET |
 | Payments | `/api/payments/verify-apple` | POST |
 | Location | `/location/update` | POST |
