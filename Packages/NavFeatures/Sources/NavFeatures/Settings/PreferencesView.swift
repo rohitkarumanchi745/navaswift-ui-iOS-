@@ -48,17 +48,19 @@ struct PreferencesView: View {
                     preferenceSection(title: "Age Range") {
                         HStack(spacing: 16) {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Min").font(.caption).foregroundColor(AppColors.textSecondary)
+                                Text("Min").font(.caption).foregroundColor(AppColors.darkTextSecondary)
                                 TextField("18", text: $ageMin)
+                                    .foregroundStyle(.white)
                                     .keyboardType(.numberPad).textFieldStyle(.plain).padding(12)
-                                    .background(Color(hex: "F7F7F7"))
+                                    .background(AppColors.darkInput)
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                             }
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Max").font(.caption).foregroundColor(AppColors.textSecondary)
+                                Text("Max").font(.caption).foregroundColor(AppColors.darkTextSecondary)
                                 TextField("50", text: $ageMax)
+                                    .foregroundStyle(.white)
                                     .keyboardType(.numberPad).textFieldStyle(.plain).padding(12)
-                                    .background(Color(hex: "F7F7F7"))
+                                    .background(AppColors.darkInput)
                                     .clipShape(RoundedRectangle(cornerRadius: 12))
                             }
                         }
@@ -108,10 +110,11 @@ struct PreferencesView: View {
                     preferenceSection(title: "Maximum Distance") {
                         HStack {
                             TextField("25", text: $distance)
+                                .foregroundStyle(.white)
                                 .keyboardType(.numberPad).textFieldStyle(.plain).padding(12)
-                                .background(Color(hex: "F7F7F7"))
+                                .background(AppColors.darkInput)
                                 .clipShape(RoundedRectangle(cornerRadius: 12)).frame(width: 80)
-                            Text("miles").font(.subheadline).foregroundColor(AppColors.textSecondary)
+                            Text("miles").font(.subheadline).foregroundColor(AppColors.darkTextSecondary)
                             Spacer()
                         }
                     }
@@ -120,10 +123,10 @@ struct PreferencesView: View {
                         Toggle(isOn: $onlyVerified) {
                             HStack(spacing: 8) {
                                 Image(systemName: "checkmark.seal.fill").foregroundColor(AppColors.secondary)
-                                Text("Only show verified profiles").font(.subheadline)
+                                Text("Only show verified profiles").font(.subheadline).foregroundStyle(.white)
                             }
                         }
-                        .tint(AppColors.verifyGreen)
+                        .tint(AppColors.purpleAccent)
                     }
 
                     Button { savePreferences() } label: {
@@ -132,7 +135,7 @@ struct PreferencesView: View {
                             Text(saving ? "Saving..." : "Save Preferences").font(.headline)
                         }
                         .foregroundColor(.white).frame(maxWidth: .infinity).padding(.vertical, 16)
-                        .background(AppColors.verifyGreen)
+                        .background(AppColors.purpleAccent)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                     }
                     .disabled(saving).padding(.top, 8)
@@ -140,7 +143,8 @@ struct PreferencesView: View {
             }
             .padding(24)
         }
-        .background(AppColors.peachBackground)
+        .scrollDismissesKeyboard(.interactively)
+        .background(AppColors.darkBg)
         .navigationTitle("Dating Preferences").navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("Done") { dismiss() } } }
         .alert("Preferences", isPresented: $showAlert) { Button("OK") {} } message: { Text(alertMessage) }
@@ -151,21 +155,21 @@ struct PreferencesView: View {
 
     private func preferenceSection(title: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(title).font(.headline).foregroundColor(AppColors.textPrimary)
+            Text(title).font(.headline).foregroundColor(AppColors.darkTextPrimary)
             content()
         }
-        .padding(20).background(.white)
+        .padding(20).background(AppColors.darkCard)
         .clipShape(RoundedRectangle(cornerRadius: 24))
     }
 
     private func chipButton(label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(label).font(.subheadline)
-                .foregroundColor(isSelected ? .white : AppColors.textSecondary)
+                .foregroundColor(isSelected ? .white : AppColors.darkTextSecondary)
                 .padding(.horizontal, 16).padding(.vertical, 10)
-                .background(isSelected ? AppColors.verifyGreen : Color.clear)
+                .background(isSelected ? AppColors.purpleAccent : Color.clear)
                 .clipShape(Capsule())
-                .overlay(Capsule().stroke(isSelected ? AppColors.verifyGreen : AppColors.border, lineWidth: 1))
+                .overlay(Capsule().stroke(isSelected ? AppColors.purpleAccent : AppColors.darkDivider, lineWidth: 1))
         }
     }
 

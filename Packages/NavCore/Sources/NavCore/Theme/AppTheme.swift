@@ -65,6 +65,31 @@ public struct AppColors {
     // Verification page background
     public static let peachBackground = Color(hex: "F3D9D1")
 
+    // MARK: Dark Surfaces (unified dark theme)
+    public static let darkBg = Color(hex: "1A1B2E")
+    public static let darkBgAlt = Color(hex: "2D1B4E")
+    public static let darkCard = Color(hex: "2D3047")
+    public static let darkInput = Color(hex: "2D3047").opacity(0.6)
+    public static let darkDivider = Color.white.opacity(0.06)
+    public static let purpleAccent = Color(hex: "C9A0DC")
+    public static let darkTextPrimary = Color.white
+    public static let darkTextSecondary = Color.white.opacity(0.7)
+    public static let darkTextMuted = Color.white.opacity(0.4)
+
+    // MARK: Chat-specific dark purples
+    public static let chatSentBubble = Color(hex: "3D2B5A")
+    public static let chatReceivedBubble = Color(hex: "2D3047")
+    public static let chatHeader = Color(hex: "231740")
+    public static let chatInput = Color(hex: "2D3047")
+    public static let chatSendButton = Color(hex: "C9A0DC")
+
+    // MARK: Dark gradient
+    public static let darkGradient = LinearGradient(
+        colors: [darkBg, darkBgAlt, darkBg],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+
     public init() {}
 }
 

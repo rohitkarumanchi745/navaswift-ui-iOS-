@@ -1,12 +1,11 @@
 import SwiftUI
-import Combine
 import Security
 import NavCore
 import NavNetworking
 
 // MARK: - Auth Status
 public enum AuthStatus: Equatable, Hashable {
-    case loading, unauthenticated, authenticated
+    case loading, unauthenticated, authenticated, sessionExpired
 }
 
 // MARK: - Keychain Helper
@@ -20,7 +19,10 @@ private struct KeychainHelper {
         SecItemDelete(query as CFDictionary)
         var add = query
         add[kSecValueData as String] = data
-        SecItemAdd(add as CFDictionary, nil)
+        let status = SecItemAdd(add as CFDictionary, nil)
+        if status != errSecSuccess {
+            NavLog.warning("Keychain save failed for \(key): \(status)", category: .auth)
+        }
     }
 
     static func load(key: String) -> String? {
@@ -41,7 +43,54 @@ private struct KeychainHelper {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: key,
         ]
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        if status != errSecSuccess && status != errSecItemNotFound {
+            NavLog.warning("Keychain delete failed for \(key): \(status)", category: .auth)
+        }
+    }
+}
+
+// MARK: - JWT Helper
+private struct JWTHelper {
+    struct Claims {
+        let sub: String?
+        let exp: Date?
+        let isAdmin: Bool
+    }
+
+    static func decode(_ token: String) -> Claims? {
+        let parts = token.split(separator: ".")
+        guard parts.count == 3,
+              let payloadData = base64URLDecode(String(parts[1])),
+              let json = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any] else {
+            return nil
+        }
+
+        let sub = json["sub"] as? String
+        let isAdmin = json["is_admin"] as? Bool ?? false
+        var exp: Date?
+        if let expTimestamp = json["exp"] as? TimeInterval {
+            exp = Date(timeIntervalSince1970: expTimestamp)
+        }
+        return Claims(sub: sub, exp: exp, isAdmin: isAdmin)
+    }
+
+    static func isExpired(_ token: String, bufferSeconds: TimeInterval = 60) -> Bool {
+        guard let claims = decode(token), let exp = claims.exp else {
+            return true
+        }
+        return Date().addingTimeInterval(bufferSeconds) >= exp
+    }
+
+    private static func base64URLDecode(_ string: String) -> Data? {
+        var base64 = string
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let remainder = base64.count % 4
+        if remainder > 0 {
+            base64.append(contentsOf: String(repeating: "=", count: 4 - remainder))
+        }
+        return Data(base64Encoded: base64)
     }
 }
 
@@ -54,8 +103,10 @@ public class AuthManager: ObservableObject {
     @Published public var isRefreshingProfile = false
 
     private let tokenKey = "nava_token"
+    private let refreshTokenKey = "nava_refresh_token"
     private let phoneKey = "nava_phone"
     private let userIdKey = "nava_user_id"
+    private var isRefreshingToken = false
 
     public init() {
         bootstrapAuth()
@@ -65,12 +116,28 @@ public class AuthManager: ObservableObject {
         guard let storedToken = KeychainHelper.load(key: tokenKey),
               !storedToken.hasPrefix("mock-token"),
               !storedToken.hasPrefix("demo-token") else {
-            print("[NAVA DEBUG] bootstrapAuth: no valid token, setting unauthenticated")
+            NavLog.debug("bootstrapAuth: no valid token, setting unauthenticated", category: .auth)
             status = .unauthenticated
             return
         }
 
-        print("[NAVA DEBUG] bootstrapAuth: found token, calling refreshProfile")
+        if JWTHelper.isExpired(storedToken) {
+            NavLog.info("bootstrapAuth: access token expired, attempting refresh", category: .auth)
+            Task {
+                let refreshed = await refreshAccessToken()
+                if !refreshed {
+                    NavLog.info("bootstrapAuth: refresh failed, showing re-auth prompt", category: .auth)
+                    KeychainHelper.delete(key: tokenKey)
+                    KeychainHelper.delete(key: refreshTokenKey)
+                    status = .sessionExpired
+                } else {
+                    await refreshProfile()
+                }
+            }
+            return
+        }
+
+        NavLog.debug("bootstrapAuth: found valid token, calling refreshProfile", category: .auth)
         token = storedToken
         APIService.shared.setAuthToken(storedToken)
 
@@ -78,6 +145,83 @@ public class AuthManager: ObservableObject {
             await refreshProfile()
         }
     }
+
+    public func ensureValidToken() async -> Bool {
+        guard let currentToken = token else { return false }
+        if currentToken.hasPrefix("demo-token") { return true }
+
+        if JWTHelper.isExpired(currentToken) {
+            NavLog.info("Token expired, attempting refresh", category: .auth)
+            let refreshed = await refreshAccessToken()
+            if !refreshed {
+                NavLog.info("Token refresh failed, showing re-auth prompt", category: .auth)
+                token = nil
+                APIService.shared.setAuthToken(nil)
+                KeychainHelper.delete(key: tokenKey)
+                KeychainHelper.delete(key: refreshTokenKey)
+                status = .sessionExpired
+                return false
+            }
+            return true
+        }
+
+        // Proactively refresh if token expires within 5 minutes
+        if JWTHelper.isExpired(currentToken, bufferSeconds: 300) {
+            NavLog.info("Token expires within 5 minutes, refreshing proactively", category: .auth)
+            Task { await refreshAccessToken() }
+        }
+
+        return true
+    }
+
+    // MARK: - Token Refresh
+
+    /// Attempts to refresh the access token using the stored refresh token.
+    /// Returns `true` if the refresh succeeded and new tokens were stored.
+    @discardableResult
+    public func refreshAccessToken() async -> Bool {
+        guard !isRefreshingToken else {
+            NavLog.debug("Token refresh already in progress, skipping", category: .auth)
+            return false
+        }
+
+        guard let storedRefreshToken = KeychainHelper.load(key: refreshTokenKey) else {
+            NavLog.debug("No refresh token available", category: .auth)
+            return false
+        }
+
+        isRefreshingToken = true
+        defer { isRefreshingToken = false }
+
+        do {
+            let response: RefreshTokenResponse = try await APIService.shared.post(
+                path: "/refresh",
+                body: ["refresh_token": storedRefreshToken]
+            )
+
+            let newAccessToken = response.accessToken
+
+            if JWTHelper.decode(newAccessToken) == nil {
+                NavLog.warning("Received malformed JWT from refresh endpoint", category: .auth)
+                return false
+            }
+
+            KeychainHelper.save(key: tokenKey, value: newAccessToken)
+            if let newRefreshToken = response.refreshToken {
+                KeychainHelper.save(key: refreshTokenKey, value: newRefreshToken)
+            }
+
+            token = newAccessToken
+            APIService.shared.setAuthToken(newAccessToken)
+            NavLog.info("Token refresh succeeded", category: .auth)
+            return true
+        } catch {
+            NavLog.error("Token refresh failed: \(error.localizedDescription)", category: .auth)
+            return false
+        }
+    }
+
+    // MARK: - OTP Auth
 
     public func sendOtp(phoneNumber: String) async throws {
         let query = """
@@ -88,20 +232,18 @@ public class AuthManager: ObservableObject {
           }
         }
         """
-        print("[NAVA DEBUG] sendOtp called with phoneNumber: \(phoneNumber)")
-        print("[NAVA DEBUG] sendOtp query: \(query)")
-        print("[NAVA DEBUG] sendOtp variables: [\"phoneNumber\": \(phoneNumber)]")
+        NavLog.debug("sendOtp called for: \(phoneNumber)", category: .auth)
         do {
-            let _: [String: Any] = try await APIService.shared.graphQL(
+            let _: SendOtpData = try await APIService.shared.graphQLCodable(
                 query: query,
                 variables: ["phoneNumber": phoneNumber]
             )
-            print("[NAVA DEBUG] sendOtp SUCCESS")
+            NavLog.info("sendOtp succeeded", category: .auth)
         } catch {
-            print("[NAVA DEBUG] sendOtp FAILED: \(error)")
+            NavLog.error("sendOtp failed: \(error)", category: .auth)
             throw error
         }
-        UserDefaults.standard.set(phoneNumber, forKey: phoneKey)
+        KeychainHelper.save(key: phoneKey, value: phoneNumber)
     }
 
     public func verifyOtp(phoneNumber: String, otp: String) async throws {
@@ -116,31 +258,31 @@ public class AuthManager: ObservableObject {
         }
         """
 
-        print("[NAVA DEBUG] verifyOtp called with phoneNumber: \(phoneNumber), otp: \(otp)")
-        let result: [String: Any]
+        NavLog.debug("verifyOtp called", category: .auth)
+        let result: VerifyOtpData
         do {
-            result = try await APIService.shared.graphQL(
+            result = try await APIService.shared.graphQLCodable(
                 query: query,
                 variables: ["phoneNumber": phoneNumber, "otp": otp]
             )
-            print("[NAVA DEBUG] verifyOtp result: \(result)")
         } catch {
-            print("[NAVA DEBUG] verifyOtp FAILED: \(error)")
+            NavLog.error("verifyOtp failed: \(error)", category: .auth)
             throw error
         }
 
-        guard let verifyOtp = result["verifyOtp"] as? [String: Any],
-              let accessToken = verifyOtp["accessToken"] as? String else {
-            print("[NAVA DEBUG] verifyOtp parse FAILED - result was: \(result)")
-            throw APIError.invalidResponse
+        let accessToken = result.verifyOtp.accessToken
+
+        if JWTHelper.decode(accessToken) == nil {
+            NavLog.warning("Received malformed JWT from server", category: .auth)
         }
 
-        let userId = verifyOtp["userId"]
-
         KeychainHelper.save(key: tokenKey, value: accessToken)
-        UserDefaults.standard.set(phoneNumber, forKey: phoneKey)
-        if let uid = userId {
-            UserDefaults.standard.set("\(uid)", forKey: userIdKey)
+        KeychainHelper.save(key: phoneKey, value: phoneNumber)
+        if let refreshToken = result.verifyOtp.refreshToken {
+            KeychainHelper.save(key: refreshTokenKey, value: refreshToken)
+        }
+        if let uid = result.verifyOtp.userId {
+            KeychainHelper.save(key: userIdKey, value: uid.value)
         }
 
         token = accessToken
@@ -150,7 +292,7 @@ public class AuthManager: ObservableObject {
 
     @discardableResult
     public func refreshProfile() async -> UserProfile? {
-        print("[NAVA DEBUG] refreshProfile called (BUILD v2)")
+        NavLog.debug("refreshProfile called", category: .auth)
         isRefreshingProfile = true
         defer { isRefreshingProfile = false }
 
@@ -166,56 +308,41 @@ public class AuthManager: ObservableObject {
         """
 
         do {
-            let result: [String: Any] = try await APIService.shared.graphQL(query: query)
-            print("[NAVA DEBUG] refreshProfile result: \(result)")
-            guard let me = result["me"] as? [String: Any] else {
-                print("[NAVA DEBUG] refreshProfile: 'me' is nil, setting unauthenticated")
+            let result: MeData = try await APIService.shared.graphQLCodable(query: query)
+            guard let me = result.me else {
+                NavLog.info("refreshProfile: 'me' is nil, setting unauthenticated", category: .auth)
                 status = .unauthenticated
                 user = nil
                 return nil
             }
 
-            // Parse isProfileComplete robustly — NSNumber from JSON can be tricky
-            let rawComplete = me["isProfileComplete"]
-            let isComplete: Bool?
-            if let boolVal = rawComplete as? Bool {
-                isComplete = boolVal
-            } else if let numVal = rawComplete as? NSNumber {
-                isComplete = numVal.boolValue
-            } else if let intVal = rawComplete as? Int {
-                isComplete = intVal != 0
-            } else {
-                isComplete = nil
-            }
-            print("[NAVA DEBUG] refreshProfile: isProfileComplete raw=\(String(describing: rawComplete)) parsed=\(String(describing: isComplete))")
-
             let profile = UserProfile(
-                id: "\(me["id"] ?? "")",
-                name: me["name"] as? String,
-                phoneNumber: me["phoneNumber"] as? String,
-                age: me["age"] as? Int,
-                gender: me["gender"] as? String,
-                bio: me["bio"] as? String,
-                location: me["location"] as? String,
-                professionCategory: me["professionCategory"] as? String,
-                professionTitle: me["professionTitle"] as? String,
-                interests: me["interests"] as? [String],
-                photos: me["photos"] as? [String],
-                isProfileComplete: isComplete,
-                isVerified: me["isVerified"] as? Bool,
-                isStudentVerified: me["isStudentVerified"] as? Bool,
-                heightCm: me["heightCm"] as? Int,
-                languages: me["languages"] as? [String],
-                lookingFor: me["lookingFor"] as? String,
-                voiceIntroUrl: me["voiceIntroUrl"] as? String
+                id: me.id.value,
+                name: me.name,
+                phoneNumber: me.phoneNumber,
+                age: me.age,
+                gender: me.gender,
+                bio: me.bio,
+                location: me.location,
+                professionCategory: me.professionCategory,
+                professionTitle: me.professionTitle,
+                interests: me.interests,
+                photos: me.photos,
+                isProfileComplete: me.isProfileComplete?.value,
+                isVerified: me.isVerified,
+                isStudentVerified: me.isStudentVerified,
+                heightCm: me.heightCm,
+                languages: me.languages,
+                lookingFor: me.lookingFor,
+                voiceIntroUrl: me.voiceIntroUrl
             )
 
             user = profile
             status = .authenticated
-            print("[NAVA DEBUG] refreshProfile SUCCESS - user: \(profile.displayName), isProfileComplete: \(profile.isProfileComplete ?? false), status now: \(status)")
+            NavLog.info("refreshProfile succeeded: \(profile.displayName)", category: .auth)
             return profile
         } catch {
-            print("[NAVA DEBUG] refreshProfile FAILED: \(error) - setting unauthenticated")
+            NavLog.error("refreshProfile failed: \(error)", category: .auth)
             status = .unauthenticated
             user = nil
             return nil
@@ -223,16 +350,19 @@ public class AuthManager: ObservableObject {
     }
 
     public func logout() {
+        NavLog.info("Logging out", category: .auth)
         status = .unauthenticated
         user = nil
         token = nil
         APIService.shared.setAuthToken(nil)
         KeychainHelper.delete(key: tokenKey)
-        UserDefaults.standard.removeObject(forKey: phoneKey)
-        UserDefaults.standard.removeObject(forKey: userIdKey)
+        KeychainHelper.delete(key: refreshTokenKey)
+        KeychainHelper.delete(key: phoneKey)
+        KeychainHelper.delete(key: userIdKey)
+        LocalCache.shared.rotateKey()
     }
 
-    // MARK: - Demo Mode (for testing without backend)
+    // MARK: - Demo Mode
     public func loginWithDemoUser() {
         let demoUser = UserProfile(
             id: "demo-user-1",

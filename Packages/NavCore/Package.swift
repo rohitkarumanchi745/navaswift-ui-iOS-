@@ -9,5 +9,9 @@ let package = Package(
     ],
     targets: [
         .target(name: "NavCore"),
+        .testTarget(
+            name: "NavCoreTests",
+            dependencies: ["NavCore"]
+        ),
     ]
 )

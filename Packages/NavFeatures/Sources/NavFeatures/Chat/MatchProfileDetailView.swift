@@ -58,7 +58,7 @@ struct MatchProfileDetailView: View {
                 Spacer().frame(height: 40)
             }
         }
-        .background(Color(.systemBackground))
+        .background(AppColors.darkBg)
         .overlay(alignment: .topLeading) {
             Button { dismiss() } label: {
                 Image(systemName: "chevron.left")
@@ -91,7 +91,7 @@ struct MatchProfileDetailView: View {
                     AsyncImage(url: AppConfig.resolvePhotoURL(photo)) { image in
                         image.resizable().scaledToFill()
                     } placeholder: {
-                        Rectangle().fill(Color(.systemGray5))
+                        Rectangle().fill(AppColors.darkCard)
                             .overlay { ProgressView() }
                     }
                     .tag(index)
@@ -130,11 +130,12 @@ struct MatchProfileDetailView: View {
             HStack(spacing: 10) {
                 Text(profile?.name ?? matchName)
                     .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(.white)
 
                 if let age = profile?.age {
                     Text("\(age)")
                         .font(.system(size: 26))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.white.opacity(0.6))
                 }
 
                 if profile?.isVerified == true {
@@ -151,10 +152,10 @@ struct MatchProfileDetailView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "mappin.circle.fill")
                             .font(.system(size: 14))
-                            .foregroundStyle(AppColors.primary)
+                            .foregroundStyle(AppColors.purpleAccent)
                         Text(location)
                             .font(.system(size: 15))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.6))
                     }
                 }
 
@@ -162,10 +163,10 @@ struct MatchProfileDetailView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "briefcase.fill")
                             .font(.system(size: 13))
-                            .foregroundStyle(AppColors.primary)
+                            .foregroundStyle(AppColors.purpleAccent)
                         Text(profession)
                             .font(.system(size: 15))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.6))
                     }
                 }
             }
@@ -202,11 +203,11 @@ struct MatchProfileDetailView: View {
             Text(bio)
                 .font(.system(size: 16))
                 .lineSpacing(5)
-                .foregroundStyle(.primary)
+                .foregroundStyle(.white)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(Color(.systemGray6))
+        .background(AppColors.darkCard)
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
@@ -227,7 +228,7 @@ struct MatchProfileDetailView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(Color(.systemGray6))
+        .background(AppColors.darkCard)
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
@@ -240,19 +241,19 @@ struct MatchProfileDetailView: View {
                     .foregroundStyle(AppColors.secondary)
                 Text(languages.joined(separator: " · "))
                     .font(.system(size: 15))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(.white)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(Color(.systemGray6))
+        .background(AppColors.darkCard)
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
             .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(AppColors.darkTextMuted)
             .textCase(.uppercase)
             .tracking(0.5)
     }
@@ -267,7 +268,7 @@ struct MatchProfileDetailView: View {
                     .foregroundStyle(AppColors.primary)
                 Text("Reels")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(AppColors.darkTextMuted)
                     .textCase(.uppercase)
                     .tracking(0.5)
             }

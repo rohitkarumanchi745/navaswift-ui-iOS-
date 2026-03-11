@@ -31,7 +31,7 @@ struct SettingsView: View {
             }
             .padding(16)
         }
-        .background(AppColors.background)
+        .background(AppColors.darkBg)
         .navigationTitle("Settings")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -76,9 +76,9 @@ struct SettingsView: View {
         settingsSection(title: "Notifications") {
             toggleRow(icon: "bell.fill", iconColor: AppColors.primary, title: "Push Notifications", isOn: $notificationsEnabled)
             Divider().padding(.leading, 52)
-            toggleRow(icon: "message.fill", iconColor: AppColors.secondary, title: "Message Notifications", isOn: .constant(true))
-            Divider().padding(.leading, 52)
-            toggleRow(icon: "heart.fill", iconColor: .red, title: "Match Notifications", isOn: .constant(true))
+            NavigationLink(destination: NotificationPreferencesView()) {
+                linkRow(icon: "gearshape.fill", iconColor: AppColors.secondary, title: "Notification Preferences")
+            }
         }
     }
 
@@ -154,10 +154,10 @@ struct SettingsView: View {
         VStack(spacing: 4) {
             Text("NAVA v1.0.0")
                 .font(.caption)
-                .foregroundColor(AppColors.textMuted)
+                .foregroundColor(AppColors.darkTextMuted)
             Text("Made with ❤️ in India")
                 .font(.caption2)
-                .foregroundColor(AppColors.textMuted)
+                .foregroundColor(AppColors.darkTextMuted)
         }
         .padding(.top, 16)
         .padding(.bottom, 32)
@@ -184,7 +184,7 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 0) {
             Text(title.uppercased())
                 .font(.caption.bold())
-                .foregroundColor(AppColors.textMuted)
+                .foregroundColor(AppColors.darkTextMuted)
                 .padding(.bottom, 8)
                 .padding(.leading, 4)
 
@@ -192,7 +192,7 @@ struct SettingsView: View {
                 content()
             }
             .padding(16)
-            .background(.white)
+            .background(AppColors.darkCard)
             .clipShape(RoundedRectangle(cornerRadius: 16))
         }
     }
@@ -201,9 +201,9 @@ struct SettingsView: View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.title3).foregroundColor(iconColor).frame(width: 32)
-            Text(title).font(.subheadline).foregroundColor(AppColors.textPrimary)
+            Text(title).font(.subheadline).foregroundColor(AppColors.darkTextPrimary)
             Spacer()
-            Toggle("", isOn: isOn).labelsHidden().tint(AppColors.primary)
+            Toggle("", isOn: isOn).labelsHidden().tint(AppColors.purpleAccent)
         }
         .padding(.vertical, 4)
     }
@@ -214,13 +214,13 @@ struct SettingsView: View {
         }
     }
 
-    private func linkRow(icon: String, iconColor: Color, title: String, titleColor: Color = AppColors.textPrimary) -> some View {
+    private func linkRow(icon: String, iconColor: Color, title: String, titleColor: Color = AppColors.darkTextPrimary) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon).font(.title3).foregroundColor(iconColor).frame(width: 32)
             Text(title).font(.subheadline).foregroundColor(titleColor)
             Spacer()
-            if titleColor == AppColors.textPrimary {
-                Image(systemName: "chevron.right").font(.caption).foregroundColor(AppColors.textMuted)
+            if titleColor == AppColors.darkTextPrimary {
+                Image(systemName: "chevron.right").font(.caption).foregroundColor(AppColors.darkTextMuted)
             }
         }
         .padding(.vertical, 4)

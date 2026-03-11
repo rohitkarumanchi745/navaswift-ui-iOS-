@@ -20,6 +20,7 @@ struct ConversationsView: View {
                 HStack {
                     Text("Messages")
                         .font(.system(size: 28, weight: .bold))
+                        .foregroundStyle(.white)
 
                     if totalUnread > 0 {
                         Text("\(totalUnread) new")
@@ -36,10 +37,10 @@ struct ConversationsView: View {
                 if isLoading {
                     VStack {
                         ProgressView()
-                            .tint(AppColors.primary)
+                            .tint(AppColors.purpleAccent)
                         Text("Loading conversations...")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.5))
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.top, 60)
@@ -47,14 +48,14 @@ struct ConversationsView: View {
                     VStack(spacing: 12) {
                         Image(systemName: "wifi.slash")
                             .font(.system(size: 32))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.5))
                         Text(error)
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.5))
                             .multilineTextAlignment(.center)
                         Button("Retry") { Task { await fetchConversations() } }
                             .font(.subheadline.bold())
-                            .foregroundStyle(AppColors.primary)
+                            .foregroundStyle(AppColors.purpleAccent)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.top, 60)
@@ -62,12 +63,13 @@ struct ConversationsView: View {
                     VStack(spacing: 16) {
                         Image(systemName: "bubble.left.and.bubble.right")
                             .font(.system(size: 48))
-                            .foregroundStyle(.secondary.opacity(0.5))
+                            .foregroundStyle(.white.opacity(0.3))
                         Text("No conversations yet")
                             .font(.headline)
+                            .foregroundStyle(.white)
                         Text("When you match with someone, you can start chatting here.")
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.5))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 40)
                     }
@@ -86,7 +88,7 @@ struct ConversationsView: View {
                                                 AsyncImage(url: AppConfig.resolvePhotoURL(match.photo)) { image in
                                                     image.resizable().scaledToFill()
                                                 } placeholder: {
-                                                    Circle().fill(Color(.systemGray5))
+                                                    Circle().fill(AppColors.darkCard)
                                                 }
                                                 .frame(width: 60, height: 60)
                                                 .clipShape(Circle())
@@ -100,7 +102,7 @@ struct ConversationsView: View {
                                             }
                                             Text(match.name)
                                                 .font(.system(size: 12))
-                                                .foregroundStyle(.primary)
+                                                .foregroundStyle(.white)
                                         }
                                     }
                                 }
@@ -108,7 +110,7 @@ struct ConversationsView: View {
                             .padding(.horizontal, 20)
                         }
 
-                        Divider().padding(.horizontal, 20)
+                        AppColors.darkDivider.frame(height: 1).padding(.horizontal, 20)
                     }
 
                     // Message list
@@ -120,7 +122,7 @@ struct ConversationsView: View {
                                         AsyncImage(url: AppConfig.resolvePhotoURL(match.photo)) { image in
                                             image.resizable().scaledToFill()
                                         } placeholder: {
-                                            Circle().fill(Color(.systemGray5))
+                                            Circle().fill(AppColors.darkCard)
                                         }
                                         .frame(width: 52, height: 52)
                                         .clipShape(Circle())
@@ -130,7 +132,7 @@ struct ConversationsView: View {
                                                 .fill(AppColors.online)
                                                 .frame(width: 14, height: 14)
                                                 .overlay {
-                                                    Circle().strokeBorder(Color(.systemBackground), lineWidth: 2)
+                                                    Circle().strokeBorder(AppColors.darkBg, lineWidth: 2)
                                                 }
                                         }
                                     }
@@ -139,14 +141,15 @@ struct ConversationsView: View {
                                         HStack {
                                             Text(match.name)
                                                 .font(.system(size: 15, weight: .bold))
+                                                .foregroundStyle(.white)
                                             Spacer()
                                             Text(match.timestamp ?? "")
                                                 .font(.system(size: 12))
-                                                .foregroundStyle(.secondary)
+                                                .foregroundStyle(.white.opacity(0.4))
                                         }
                                         Text(match.lastMessage ?? "Say hi!")
                                             .font(.system(size: 14))
-                                            .foregroundStyle(match.unreadCount > 0 ? .primary : .secondary)
+                                            .foregroundStyle(match.unreadCount > 0 ? .white : .white.opacity(0.5))
                                             .fontWeight(match.unreadCount > 0 ? .medium : .regular)
                                             .lineLimit(1)
                                     }
@@ -164,7 +167,7 @@ struct ConversationsView: View {
                                 .padding(.vertical, 14)
                                 .background(
                                     RoundedRectangle(cornerRadius: 16)
-                                        .fill(Color(.systemGray6))
+                                        .fill(AppColors.darkCard)
                                 )
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 10)
@@ -176,7 +179,7 @@ struct ConversationsView: View {
             }
             .padding(.top, 10)
         }
-        .background(Color(.systemBackground))
+        .background(AppColors.darkBg)
         .navigationBarHidden(true)
         .task { await fetchConversations() }
         .refreshable { await fetchConversations() }
@@ -218,12 +221,21 @@ struct ConversationsView: View {
                     )
                 }
                 conversations = fetched.isEmpty ? MatchProfile.demos : fetched
+                if !fetched.isEmpty {
+                    LocalCache.shared.save(fetched, forKey: .conversations)
+                }
             } else {
                 conversations = MatchProfile.demos
             }
         } catch {
             if conversations.isEmpty {
-                conversations = MatchProfile.demos
+                if let cached = LocalCache.shared.loadStale([MatchProfile].self, forKey: .conversations) {
+                    conversations = cached
+                    errorMessage = nil
+                } else {
+                    errorMessage = "Could not load conversations."
+                    conversations = MatchProfile.demos
+                }
             }
         }
         isLoading = false

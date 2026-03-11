@@ -18,9 +18,10 @@ struct MatchesView: View {
                     VStack(alignment: .leading) {
                         Text("Likes")
                             .font(.system(size: 28, weight: .bold))
+                            .foregroundStyle(.white)
                         Text("\(likedProfiles.count) people liked you")
                             .font(.system(size: 15))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.6))
                     }
                     Spacer()
                     if !storeKit.isPremium {
@@ -44,10 +45,10 @@ struct MatchesView: View {
                 if isLoading {
                     VStack {
                         ProgressView()
-                            .tint(AppColors.primary)
+                            .tint(AppColors.purpleAccent)
                         Text("Loading likes...")
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.5))
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.top, 60)
@@ -55,14 +56,14 @@ struct MatchesView: View {
                     VStack(spacing: 12) {
                         Image(systemName: "wifi.slash")
                             .font(.system(size: 32))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.5))
                         Text(error)
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.5))
                             .multilineTextAlignment(.center)
                         Button("Retry") { Task { await fetchLikes() } }
                             .font(.subheadline.bold())
-                            .foregroundStyle(AppColors.primary)
+                            .foregroundStyle(AppColors.purpleAccent)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.top, 60)
@@ -70,24 +71,73 @@ struct MatchesView: View {
                     VStack(spacing: 16) {
                         Image(systemName: "heart.circle")
                             .font(.system(size: 48))
-                            .foregroundStyle(.secondary.opacity(0.5))
+                            .foregroundStyle(.white.opacity(0.3))
                         Text("No likes yet")
                             .font(.headline)
+                            .foregroundStyle(.white)
                         Text("Keep swiping and complete your profile to attract more people!")
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(.white.opacity(0.5))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 40)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.top, 60)
                 } else {
+                    let superLiked = likedProfiles.filter { $0.type == .superLike }
+                    let regularLikes = likedProfiles.filter { $0.type != .superLike }
+
+                    // Super Liked You section
+                    if !superLiked.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(AppColors.superLike)
+                                Text("Super Liked You")
+                                    .font(.system(size: 17, weight: .bold))
+                                    .foregroundStyle(.white)
+                                Text("(\(superLiked.count))")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.4))
+                            }
+                            .padding(.horizontal, 20)
+
+                            ScrollView(.horizontal, showsIndicators: false) {
+                                HStack(spacing: 12) {
+                                    ForEach(superLiked) { profile in
+                                        LikedProfileCard(profile: profile, isPremium: storeKit.isPremium)
+                                            .frame(width: 160, height: 200)
+                                    }
+                                }
+                                .padding(.horizontal, 20)
+                            }
+                        }
+                        .padding(.bottom, 8)
+                    }
+
+                    // Regular likes header
+                    if !regularLikes.isEmpty && !superLiked.isEmpty {
+                        HStack(spacing: 8) {
+                            Image(systemName: "heart.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(AppColors.primary)
+                            Text("Liked You")
+                                .font(.system(size: 17, weight: .bold))
+                                .foregroundStyle(.white)
+                            Text("(\(regularLikes.count))")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.4))
+                        }
+                        .padding(.horizontal, 20)
+                    }
+
                     // Grid of liked profiles
                     LazyVGrid(columns: [
                         GridItem(.flexible(), spacing: 12),
                         GridItem(.flexible(), spacing: 12),
                     ], spacing: 12) {
-                        ForEach(likedProfiles) { profile in
+                        ForEach(regularLikes) { profile in
                             LikedProfileCard(profile: profile, isPremium: storeKit.isPremium)
                         }
 
@@ -120,7 +170,7 @@ struct MatchesView: View {
                 }
             }
         }
-        .background(Color(.systemBackground))
+        .background(AppColors.darkBg)
         .navigationBarHidden(true)
         .task {
             await fetchLikes()
@@ -140,6 +190,7 @@ struct MatchesView: View {
                         id name age photos
                     }
                     isMutual
+                    likeType
                     matchedAt
                 }
             }
@@ -150,12 +201,14 @@ struct MatchesView: View {
                     guard let partner = m["partner"] as? [String: Any],
                           let isMutual = m["isMutual"] as? Bool, !isMutual else { return nil }
                     let photos = partner["photos"] as? [String]
+                    let likeTypeStr = m["likeType"] as? String ?? "swipe"
+                    let likeType = LikedProfile.LikeType(rawValue: likeTypeStr) ?? .swipe
                     return LikedProfile(
                         id: "\(partner["id"] ?? "")",
                         name: partner["name"] as? String ?? "Unknown",
                         age: partner["age"] as? Int ?? 0,
                         photo: photos?.first ?? "",
-                        type: .swipe,
+                        type: likeType,
                         likedAt: formatTimestamp(m["matchedAt"] as? String) ?? ""
                     )
                 }
@@ -192,7 +245,7 @@ struct LikedProfileCard: View {
             AsyncImage(url: AppConfig.resolvePhotoURL(profile.photo)) { image in
                 image.resizable().scaledToFill()
             } placeholder: {
-                Rectangle().fill(Color(.systemGray5))
+                Rectangle().fill(AppColors.darkCard)
             }
             .frame(height: 200)
             .clipped()
@@ -229,12 +282,12 @@ struct LikedProfileCard: View {
                 }
             }
 
-            // Like indicator
+            // Like indicator — star for super like, heart for regular
             Circle()
-                .fill(AppColors.primary)
+                .fill(profile.type == .superLike ? AppColors.superLike : AppColors.primary)
                 .frame(width: 26, height: 26)
                 .overlay {
-                    Image(systemName: "heart.fill")
+                    Image(systemName: profile.type == .superLike ? "star.fill" : "heart.fill")
                         .font(.system(size: 12))
                         .foregroundStyle(.white)
                 }
@@ -242,5 +295,11 @@ struct LikedProfileCard: View {
                 .padding(10)
         }
         .clipShape(RoundedRectangle(cornerRadius: 16))
+        .overlay(
+            profile.type == .superLike
+                ? RoundedRectangle(cornerRadius: 16)
+                    .stroke(AppColors.superLike.opacity(0.5), lineWidth: 2)
+                : nil
+        )
     }
 }

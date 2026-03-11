@@ -27,6 +27,11 @@ public struct UpdateProfileView: View {
     @State private var heightCm: Int = 170
     @State private var bio = ""
 
+    // Education
+    @State private var university = ""
+    @State private var universityLocation = ""
+    @State private var study = ""
+
     // Photos
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var photoImages: [UIImage] = []
@@ -184,6 +189,9 @@ public struct UpdateProfileView: View {
                 if let h = user.heightCm { heightCm = h }
                 if let i = user.interests { selectedInterests = Set(i) }
                 if let l = user.languages { selectedLanguages = Set(l) }
+                university = user.university ?? ""
+                universityLocation = user.universityLocation ?? ""
+                study = user.study ?? ""
             }
             // Auto-fill location from device GPS if not already set
             if location.isEmpty && locationManager.city != "Unknown" {
@@ -441,6 +449,13 @@ public struct UpdateProfileView: View {
                                 .strokeBorder(.white.opacity(0.1), lineWidth: 1)
                         )
                 }
+
+                // Education picker
+                UniversityPickerView(
+                    selectedUniversity: $university,
+                    selectedLocation: $universityLocation,
+                    selectedStudy: $study
+                )
 
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
@@ -706,7 +721,10 @@ public struct UpdateProfileView: View {
                     $languages: [String!]!,
                     $height_cm: Int,
                     $profession_category: String,
-                    $profession_title: String\(photoParams)
+                    $profession_title: String,
+                    $university: String,
+                    $university_location: String,
+                    $study: String\(photoParams)
                 ) {
                     update_profile(
                         name: $name,
@@ -719,7 +737,10 @@ public struct UpdateProfileView: View {
                         languages: $languages,
                         height_cm: $height_cm,
                         profession_category: $profession_category,
-                        profession_title: $profession_title\(photoArgs)
+                        profession_title: $profession_title,
+                        university: $university,
+                        university_location: $university_location,
+                        study: $study\(photoArgs)
                     )
                 }
                 """
@@ -736,6 +757,9 @@ public struct UpdateProfileView: View {
                     "height_cm": heightCm,
                     "profession_category": professionCategory,
                     "profession_title": professionTitle,
+                    "university": university,
+                    "university_location": universityLocation,
+                    "study": study,
                 ]
                 for (key, value) in photoVars {
                     variables[key] = value

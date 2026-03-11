@@ -1,5 +1,6 @@
 import Foundation
 import AVFoundation
+import NavCore
 import NavNetworking
 
 /// Manages call state, WebSocket signaling, and local camera/microphone sessions.
@@ -62,6 +63,7 @@ public class CallManager: ObservableObject {
         connectSignaling()
         sendSignal(["type": "call_offer", "call_type": type.rawValue, "match_id": matchId])
 
+        #if DEBUG
         // Auto-answer for demo (simulates partner picking up after 2s)
         Task {
             try? await Task.sleep(for: .seconds(2))
@@ -74,6 +76,7 @@ public class CallManager: ObservableObject {
                 }
             }
         }
+        #endif
     }
 
     // MARK: - Handle Incoming Call
@@ -166,7 +169,7 @@ public class CallManager: ObservableObject {
             try session.setCategory(.playAndRecord, options: speaker ? [.defaultToSpeaker, .allowBluetooth] : [.allowBluetooth])
             try session.setActive(true)
         } catch {
-            print("[NAVA] Audio session config error: \(error)")
+            NavLog.warning("Audio session config error: \(error)", category: .general)
         }
         #endif
     }

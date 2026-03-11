@@ -1,6 +1,6 @@
 import SwiftUI
-import Combine
 import CoreLocation
+import NavCore
 import NavNetworking
 
 @MainActor
@@ -33,8 +33,11 @@ public class LocationManager: NSObject, ObservableObject {
     }
 
     private func reverseGeocode(_ location: CLLocation) {
-        geocoder.reverseGeocodeLocation(location) { [weak self] placemarks, _ in
+        geocoder.reverseGeocodeLocation(location) { [weak self] placemarks, error in
             let placemark = placemarks?.first
+            if let error {
+                NavLog.warning("Reverse geocode failed: \(error.localizedDescription)", category: .general)
+            }
             Task { @MainActor in
                 self?.city = placemark?.locality ?? "Unknown"
                 self?.isLoading = false
@@ -46,17 +49,21 @@ public class LocationManager: NSObject, ObservableObject {
     private func sendToBackend(_ location: CLLocation, placemark: CLPlacemark?) {
         Task {
             struct LocationResponse: Codable { let success: Bool? }
-            let _: LocationResponse? = try? await APIService.shared.post(
-                path: "/location/update",
-                body: [
-                    "latitude": location.coordinate.latitude,
-                    "longitude": location.coordinate.longitude,
-                    "accuracy": location.horizontalAccuracy,
-                    "city": placemark?.locality ?? "",
-                    "state": placemark?.administrativeArea ?? "",
-                    "country": placemark?.country ?? "",
-                ]
-            )
+            do {
+                let _: LocationResponse = try await APIService.shared.post(
+                    path: "/location/update",
+                    body: [
+                        "latitude": location.coordinate.latitude,
+                        "longitude": location.coordinate.longitude,
+                        "accuracy": location.horizontalAccuracy,
+                        "city": placemark?.locality ?? "",
+                        "state": placemark?.administrativeArea ?? "",
+                        "country": placemark?.country ?? "",
+                    ]
+                )
+            } catch {
+                NavLog.warning("Location update to backend failed: \(error.localizedDescription)", category: .network)
+            }
         }
     }
 }
@@ -72,6 +79,7 @@ extension LocationManager: CLLocationManagerDelegate {
 
     nonisolated public func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         Task { @MainActor in
+            NavLog.warning("Location manager error: \(error.localizedDescription)", category: .general)
             self.isLoading = false
         }
     }

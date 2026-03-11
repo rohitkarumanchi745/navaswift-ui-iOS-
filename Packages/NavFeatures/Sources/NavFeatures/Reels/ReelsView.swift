@@ -196,6 +196,10 @@ struct ReelsView: View {
     @State private var showUserReels = false
     @State private var selectedReelUser: Reel?
     @State private var showPremiumGate = false
+    @State private var showProfileDetail = false
+    @State private var profileDetailReel: Reel?
+    @State private var showInbox = false
+    @State private var unreadReelMessages = 0
 
     var body: some View {
         ZStack {
@@ -265,10 +269,31 @@ struct ReelsView: View {
                     .background(Color.white.opacity(0.1))
                     .clipShape(Capsule())
 
+                    // Inbox button with unread badge
+                    Button { showInbox = true } label: {
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: "tray.fill")
+                                .font(.system(size: 18))
+                                .foregroundColor(.white)
+                                .frame(width: 36, height: 36)
+
+                            if unreadReelMessages > 0 {
+                                Text("\(min(unreadReelMessages, 99))")
+                                    .font(.system(size: 9, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 4)
+                                    .padding(.vertical, 1)
+                                    .background(AppColors.error)
+                                    .clipShape(Capsule())
+                                    .offset(x: 4, y: -4)
+                            }
+                        }
+                    }
+
                     Button { showUploadSheet = true } label: {
                         Image(systemName: "plus.circle.fill").font(.title2).foregroundColor(.white)
                     }
-                    .padding(.leading, 8)
+                    .padding(.leading, 4)
                 }
                 .padding(.horizontal).padding(.top, 8)
                 Spacer()
@@ -293,7 +318,26 @@ struct ReelsView: View {
         .sheet(isPresented: $showPremiumGate) {
             PremiumView()
         }
-        .task { await fetchReels() }
+        .sheet(isPresented: $showProfileDetail) {
+            if let reel = profileDetailReel {
+                NavigationStack {
+                    MatchProfileDetailView(
+                        userId: reel.userId,
+                        matchName: reel.userName,
+                        matchPhoto: reel.userPhoto
+                    )
+                }
+            }
+        }
+        .sheet(isPresented: $showInbox) {
+            NavigationStack {
+                ReelInboxView()
+            }
+        }
+        .task {
+            await fetchReels()
+            await fetchUnreadCount()
+        }
         .onChange(of: feedScope) { _, _ in
             currentIndex = 0
         }
@@ -304,11 +348,18 @@ struct ReelsView: View {
     }
 
     private func handleProfileTap(reel: Reel) {
-        if storeKit.isPremium {
-            selectedReelUser = reel
-            showUserReels = true
-        } else {
-            showPremiumGate = true
+        profileDetailReel = reel
+        showProfileDetail = true
+    }
+
+    private func fetchUnreadCount() async {
+        do {
+            let response: ReelInboxResponse = try await APIService.shared.get(
+                path: "/reels/inbox?limit=1&unread_only=true"
+            )
+            unreadReelMessages = response.unreadCount ?? 0
+        } catch {
+            // Silently fail — badge just won't show
         }
     }
 
@@ -525,8 +576,7 @@ struct ReelCard: View {
     @StateObject private var playerManager = VideoPlayerManager()
     @State private var showHeart = false
     @State private var showMessageSheet = false
-    @State private var messageText = ""
-    @State private var messageSent = false
+    @State private var showLikeCreator = false
 
     var body: some View {
         GeometryReader { geo in
@@ -564,17 +614,6 @@ struct ReelCard: View {
                                         image.resizable().scaledToFill()
                                     } placeholder: { Circle().fill(Color.gray.opacity(0.3)) }
                                     .frame(width: 40, height: 40).clipShape(Circle())
-                                    .overlay(alignment: .bottomTrailing) {
-                                        if onProfileTap != nil {
-                                            Image(systemName: "crown.fill")
-                                                .font(.system(size: 8))
-                                                .foregroundColor(AppColors.gold)
-                                                .padding(3)
-                                                .background(Color.black.opacity(0.6))
-                                                .clipShape(Circle())
-                                                .offset(x: 2, y: 2)
-                                        }
-                                    }
 
                                     VStack(alignment: .leading, spacing: 2) {
                                         HStack(spacing: 4) {
@@ -617,17 +656,42 @@ struct ReelCard: View {
             withAnimation(.spring(response: 0.3)) { showHeart = true }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { withAnimation { showHeart = false } }
         }
+        .gesture(
+            DragGesture(minimumDistance: 60)
+                .onEnded { value in
+                    // Swipe up to like creator
+                    if value.translation.height < -80 && abs(value.translation.width) < abs(value.translation.height) {
+                        likeCreator()
+                    }
+                }
+        )
+        .overlay {
+            if showLikeCreator {
+                VStack(spacing: 8) {
+                    Image(systemName: "heart.circle.fill")
+                        .font(.system(size: 60))
+                        .foregroundStyle(AppColors.purpleAccent)
+                    Text("Liked \(reel.userName)!")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .padding(20)
+                .background(.ultraThinMaterial.opacity(0.9))
+                .environment(\.colorScheme, .dark)
+                .clipShape(RoundedRectangle(cornerRadius: 20))
+                .transition(.scale.combined(with: .opacity))
+            }
+        }
         .onChange(of: isActive) { _, active in
             if active { playerManager.play(url: reel.videoUrl); trackView() }
             else { playerManager.pause() }
         }
         .onDisappear { playerManager.stop() }
-        .alert("Send Message", isPresented: $showMessageSheet) {
-            TextField("Say something...", text: $messageText)
-            Button("Send") { sendReelMessage() }
-            Button("Cancel", role: .cancel) { messageText = "" }
-        } message: {
-            Text("Send a message to \(reel.userName)")
+        .sheet(isPresented: $showMessageSheet) {
+            ReelMessageComposer(reel: reel, isPresented: $showMessageSheet)
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.hidden)
+                .presentationBackground(AppColors.darkBg)
         }
     }
 
@@ -640,20 +704,24 @@ struct ReelCard: View {
         }
     }
 
+    private func likeCreator() {
+        withAnimation(.spring(response: 0.3)) { showLikeCreator = true }
+        Task {
+            struct R: Codable { let success: Bool? }
+            let _: R? = try? await APIService.shared.post(
+                path: "/reels/\(reel.id)/like-creator",
+                body: ["reel_id": Int(reel.id) ?? 0]
+            )
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            withAnimation { showLikeCreator = false }
+        }
+    }
+
     private func trackView() {
         Task {
             struct R: Codable { let success: Bool? }
             let _: R? = try? await APIService.shared.post(path: "/reels/view", body: ["reel_id": Int(reel.id) ?? 0])
-        }
-    }
-
-    private func sendReelMessage() {
-        let text = messageText.trimmingCharacters(in: .whitespaces)
-        guard !text.isEmpty else { return }
-        messageText = ""
-        Task {
-            struct R: Codable { let success: Bool? }
-            let _: R? = try? await APIService.shared.post(path: "/reels/message", body: ["reel_id": Int(reel.id) ?? 0, "content": text])
         }
     }
 

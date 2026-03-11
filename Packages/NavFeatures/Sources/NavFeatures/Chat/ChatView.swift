@@ -39,7 +39,7 @@ struct ChatView: View {
                         AsyncImage(url: AppConfig.resolvePhotoURL(match.photo)) { image in
                             image.resizable().scaledToFill()
                         } placeholder: {
-                            Circle().fill(Color(hex: "2A3942"))
+                            Circle().fill(AppColors.darkCard)
                         }
                         .frame(width: 40, height: 40)
                         .clipShape(Circle())
@@ -50,7 +50,7 @@ struct ChatView: View {
                                 .foregroundStyle(.white)
                             Text(match.isOnline ? "Online" : "Last seen recently")
                                 .font(.system(size: 13))
-                                .foregroundStyle(Color(hex: "8696A0"))
+                                .foregroundStyle(AppColors.darkTextSecondary)
                         }
                     }
                 }
@@ -76,7 +76,7 @@ struct ChatView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 8)
-            .background(Color(hex: "1F2C34"))
+            .background(AppColors.chatHeader)
 
             if !match.isMutual {
                 // Locked chat
@@ -90,20 +90,20 @@ struct ChatView: View {
                         .foregroundStyle(.white)
                     Text("You can start messaging once you both like each other. Keep exploring!")
                         .font(.system(size: 14))
-                        .foregroundStyle(Color(hex: "8696A0"))
+                        .foregroundStyle(AppColors.darkTextSecondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 40)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
-                .background(Color(hex: "0B141A"))
+                .background(AppColors.darkBg)
             } else {
                 // Messages
                 ScrollViewReader { proxy in
                     ScrollView {
                         if isLoading {
                             ProgressView()
-                                .tint(Color(hex: "25D366"))
+                                .tint(AppColors.purpleAccent)
                                 .padding(.top, 40)
                         } else if messages.isEmpty {
                             VStack(spacing: 16) {
@@ -120,7 +120,7 @@ struct ChatView: View {
                                     .foregroundStyle(.white)
                                 Text("Say hi to \(match.name) to start the conversation!")
                                     .font(.system(size: 14))
-                                    .foregroundStyle(Color(hex: "8696A0"))
+                                    .foregroundStyle(AppColors.darkTextSecondary)
                                     .multilineTextAlignment(.center)
                             }
                             .padding(.top, 80)
@@ -132,12 +132,12 @@ struct ChatView: View {
                                     } label: {
                                         if isLoadingMore {
                                             ProgressView()
-                                                .tint(Color(hex: "25D366"))
+                                                .tint(AppColors.purpleAccent)
                                                 .padding(8)
                                         } else {
                                             Text("Load earlier messages")
                                                 .font(.caption)
-                                                .foregroundColor(Color(hex: "8696A0"))
+                                                .foregroundColor(AppColors.darkTextSecondary)
                                                 .padding(8)
                                         }
                                     }
@@ -158,20 +158,21 @@ struct ChatView: View {
                         }
                     }
                 }
-                .background(Color(hex: "0B141A"))
+                .scrollDismissesKeyboard(.interactively)
+                .background(AppColors.darkBg)
 
                 // Input
                 HStack(spacing: 8) {
                     HStack {
                         TextField("Message", text: $draft, axis: .vertical)
                             .font(.system(size: 16))
-                            .foregroundStyle(Color(hex: "E9EDEF"))
+                            .foregroundStyle(.white)
                             .lineLimit(4)
                             .focused($isInputFocused)
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
-                    .background(Color(hex: "1F2C34"))
+                    .background(AppColors.chatHeader)
                     .clipShape(RoundedRectangle(cornerRadius: 24))
 
                     Button {
@@ -180,13 +181,13 @@ struct ChatView: View {
                         Image(systemName: draft.trimmingCharacters(in: .whitespaces).isEmpty ? "mic.fill" : "paperplane.fill")
                             .foregroundStyle(.white)
                             .frame(width: 48, height: 48)
-                            .background(Color(hex: "00A884"))
+                            .background(AppColors.chatSendButton)
                             .clipShape(Circle())
                     }
                 }
                 .padding(.horizontal, 8)
                 .padding(.vertical, 8)
-                .background(Color(hex: "0B141A"))
+                .background(AppColors.darkBg)
             }
         }
         .navigationBarHidden(true)
@@ -380,7 +381,7 @@ struct MessageBubble: View {
             VStack(alignment: isMe ? .trailing : .leading, spacing: 4) {
                 Text(message.content)
                     .font(.system(size: 16))
-                    .foregroundStyle(Color(hex: "E9EDEF"))
+                    .foregroundStyle(.white)
 
                 HStack(spacing: 4) {
                     Text(formatTime(message.createdAt))
@@ -394,7 +395,7 @@ struct MessageBubble: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(isMe ? Color(hex: "005C4B") : Color(hex: "1D282F"))
+            .background(isMe ? AppColors.chatSentBubble : AppColors.chatReceivedBubble)
             .clipShape(RoundedRectangle(cornerRadius: 12))
 
             if !isMe { Spacer(minLength: 60) }
@@ -419,7 +420,7 @@ struct MessageBubble: View {
         case .read:
             Image(systemName: "checkmark")
                 .font(.system(size: 12))
-                .foregroundStyle(Color(hex: "34B7F1"))
+                .foregroundStyle(AppColors.purpleAccent)
         }
     }
 

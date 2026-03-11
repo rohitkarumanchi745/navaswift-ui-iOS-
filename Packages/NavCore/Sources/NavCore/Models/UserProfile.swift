@@ -22,9 +22,12 @@ public struct UserProfile: Codable, Identifiable, Equatable {
     public var languages: [String]?
     public var lookingFor: String?
     public var voiceIntroUrl: String?
+    public var university: String?
+    public var universityLocation: String?
+    public var study: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, name, dob, age, gender, bio, location, profession, interests, languages
+        case id, name, dob, age, gender, bio, location, profession, interests, languages, university, study
         case phoneNumber = "phone_number"
         case professionCategory = "profession_category"
         case professionTitle = "profession_title"
@@ -35,6 +38,7 @@ public struct UserProfile: Codable, Identifiable, Equatable {
         case heightCm = "height_cm"
         case lookingFor = "looking_for"
         case voiceIntroUrl = "voice_intro_url"
+        case universityLocation = "university_location"
     }
 
     public init(from decoder: Decoder) throws {
@@ -65,6 +69,9 @@ public struct UserProfile: Codable, Identifiable, Equatable {
         languages = try container.decodeIfPresent([String].self, forKey: .languages)
         lookingFor = try container.decodeIfPresent(String.self, forKey: .lookingFor)
         voiceIntroUrl = try container.decodeIfPresent(String.self, forKey: .voiceIntroUrl)
+        university = try container.decodeIfPresent(String.self, forKey: .university)
+        universityLocation = try container.decodeIfPresent(String.self, forKey: .universityLocation)
+        study = try container.decodeIfPresent(String.self, forKey: .study)
     }
 
     public init(id: String, name: String? = nil, phoneNumber: String? = nil, dob: String? = nil,
@@ -72,7 +79,8 @@ public struct UserProfile: Codable, Identifiable, Equatable {
                 profession: String? = nil, professionCategory: String? = nil, professionTitle: String? = nil,
                 interests: [String]? = nil, photos: [String]? = nil, isProfileComplete: Bool? = nil,
                 isVerified: Bool? = nil, isStudentVerified: Bool? = nil, heightCm: Int? = nil,
-                languages: [String]? = nil, lookingFor: String? = nil, voiceIntroUrl: String? = nil) {
+                languages: [String]? = nil, lookingFor: String? = nil, voiceIntroUrl: String? = nil,
+                university: String? = nil, universityLocation: String? = nil, study: String? = nil) {
         self.id = id; self.name = name; self.phoneNumber = phoneNumber; self.dob = dob
         self.age = age; self.gender = gender; self.bio = bio; self.location = location
         self.profession = profession; self.professionCategory = professionCategory
@@ -80,6 +88,7 @@ public struct UserProfile: Codable, Identifiable, Equatable {
         self.isProfileComplete = isProfileComplete; self.isVerified = isVerified
         self.isStudentVerified = isStudentVerified; self.heightCm = heightCm
         self.languages = languages; self.lookingFor = lookingFor; self.voiceIntroUrl = voiceIntroUrl
+        self.university = university; self.universityLocation = universityLocation; self.study = study
     }
 
     public var displayName: String { name ?? "User" }
@@ -93,7 +102,7 @@ public struct UserProfile: Codable, Identifiable, Equatable {
     }
 }
 
-public struct DiscoverProfile: Codable, Identifiable, Equatable {
+public struct DiscoverProfile: Codable, Identifiable, Equatable, Hashable {
     public let id: String
     public var name: String?
     public var age: Int?
@@ -161,9 +170,13 @@ public struct DiscoverProfile: Codable, Identifiable, Equatable {
     public static func == (lhs: DiscoverProfile, rhs: DiscoverProfile) -> Bool {
         lhs.id == rhs.id
     }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
 }
 
-public struct MatchProfile: Identifiable {
+public struct MatchProfile: Identifiable, Codable {
     public let id: String
     public let matchId: String
     public var name: String
@@ -240,7 +253,7 @@ public struct LikedProfile: Identifiable {
     public var likedAt: String
 
     public enum LikeType: String {
-        case swipe, reel
+        case swipe, reel, superLike = "super_like"
     }
 
     public init(id: String, name: String, age: Int, photo: String, type: LikeType, likedAt: String) {
@@ -391,12 +404,15 @@ public extension LikedProfile {
     static let demos: [LikedProfile] = [
         LikedProfile(id: "ls1", name: "Priya", age: 24,
                      photo: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400",
-                     type: .swipe, likedAt: "2h"),
+                     type: .superLike, likedAt: "2h"),
         LikedProfile(id: "ls2", name: "Sneha", age: 26,
                      photo: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400",
                      type: .swipe, likedAt: "5h"),
         LikedProfile(id: "ls3", name: "Ananya", age: 23,
                      photo: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=400",
                      type: .swipe, likedAt: "1d"),
+        LikedProfile(id: "ls4", name: "Meera", age: 22,
+                     photo: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400",
+                     type: .superLike, likedAt: "3h"),
     ]
 }

@@ -1,6 +1,5 @@
 import StoreKit
 import Foundation
-import Combine
 import NavCore
 import NavNetworking
 
@@ -53,7 +52,7 @@ public class StoreKitManager: ObservableObject {
                         await transaction.finish()
                     }
                 } catch {
-                    // Transaction failed verification — skip
+                    NavLog.warning("Transaction verification failed: \(error)", category: .store)
                 }
             }
         }
@@ -67,9 +66,9 @@ public class StoreKitManager: ObservableObject {
 
         do {
             let productIDs = Set(StoreProductID.allCases.map(\.rawValue))
-            print("[StoreKit] Requesting products: \(productIDs)")
+            NavLog.debug("Requesting products: \(productIDs)", category: .store)
             let storeProducts = try await Product.products(for: productIDs)
-            print("[StoreKit] Loaded \(storeProducts.count) products: \(storeProducts.map(\.id))")
+            NavLog.info("Loaded \(storeProducts.count) products", category: .store)
 
             products = storeProducts.sorted { $0.price < $1.price }
             subscriptionProducts = storeProducts
@@ -78,9 +77,9 @@ public class StoreKitManager: ObservableObject {
             consumableProducts = storeProducts
                 .filter { $0.type == .consumable }
                 .sorted { $0.price < $1.price }
-            print("[StoreKit] Subscriptions: \(subscriptionProducts.count), Consumables: \(consumableProducts.count)")
+            NavLog.debug("Subscriptions: \(subscriptionProducts.count), Consumables: \(consumableProducts.count)", category: .store)
         } catch {
-            print("[StoreKit] Failed to load products: \(error)")
+            NavLog.error("Failed to load products: \(error)", category: .store)
         }
     }
 
@@ -142,7 +141,7 @@ public class StoreKitManager: ObservableObject {
                     }
                 }
             } catch {
-                // Skip unverified
+                NavLog.debug("Skipping unverified entitlement: \(error)", category: .store)
             }
         }
 
@@ -176,6 +175,7 @@ public class StoreKitManager: ObservableObject {
         } catch {
             // Server validation failed — StoreKit local verification is still valid.
             // Backend can reconcile later via App Store Server Notifications.
+            NavLog.warning("Backend purchase validation failed: \(error.localizedDescription)", category: .store)
         }
 
         await refreshEntitlements()

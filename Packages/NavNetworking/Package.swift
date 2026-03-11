@@ -7,7 +7,13 @@ let package = Package(
     products: [
         .library(name: "NavNetworking", targets: ["NavNetworking"]),
     ],
+    dependencies: [
+        .package(path: "../NavCore"),
+    ],
     targets: [
-        .target(name: "NavNetworking"),
+        .target(
+            name: "NavNetworking",
+            dependencies: ["NavCore"]
+        ),
     ]
 )

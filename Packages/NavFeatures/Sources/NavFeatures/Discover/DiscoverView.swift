@@ -5,12 +5,18 @@ import NavServices
 
 struct DiscoverView: View {
     @EnvironmentObject var auth: AuthManager
+    @EnvironmentObject var storeKit: StoreKitManager
+    @EnvironmentObject var networkMonitor: NetworkMonitor
     @State private var profiles: [DiscoverProfile] = []
     @State private var currentIndex = 0
     @State private var isLoading = true
     @State private var offset: CGSize = .zero
     @State private var showDetails = false
+    @State private var selectedProfile: DiscoverProfile?
     @State private var animateOrbs = false
+    @State private var errorMessage: String?
+    @State private var superLikeMessage: String?
+    @State private var showSuperLikeFeedback = false
 
     #if canImport(UIKit)
     private let screenWidth = UIScreen.main.bounds.width
@@ -18,6 +24,7 @@ struct DiscoverView: View {
     private let screenWidth: CGFloat = 400
     #endif
     private var swipeThreshold: CGFloat { screenWidth * 0.25 }
+    private let swipeUpThreshold: CGFloat = -120
 
     var body: some View {
         ZStack {
@@ -56,6 +63,26 @@ struct DiscoverView: View {
 
                     Spacer()
 
+                    NavigationLink(destination: ReelsView(selectedTab: .constant(0))) {
+                        Image(systemName: "play.rectangle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.white.opacity(0.8))
+                            .frame(width: 40, height: 40)
+                            .background(.white.opacity(0.1))
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 1))
+                    }
+
+                    NavigationLink(destination: SentLikesView()) {
+                        Image(systemName: "heart.text.square")
+                            .font(.system(size: 20))
+                            .foregroundColor(.white.opacity(0.8))
+                            .frame(width: 40, height: 40)
+                            .background(.white.opacity(0.1))
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 1))
+                    }
+
                     NavigationLink(destination: PreferencesView()) {
                         Image(systemName: "slider.horizontal.3")
                             .font(.system(size: 20))
@@ -69,6 +96,12 @@ struct DiscoverView: View {
                 .padding(.horizontal, AppSpacing.lg)
                 .padding(.vertical, AppSpacing.md)
 
+                // Offline banner
+                if !networkMonitor.isConnected {
+                    ErrorBanner(style: .offline)
+                        .padding(.top, 4)
+                }
+
                 if isLoading {
                     Spacer()
                     VStack(spacing: AppSpacing.lg) {
@@ -77,6 +110,44 @@ struct DiscoverView: View {
                             .tint(Color(hex: "C9A0DC"))
                         Text("Finding people for you...")
                             .foregroundStyle(.white.opacity(0.5))
+                    }
+                    Spacer()
+                } else if let error = errorMessage {
+                    // Error state
+                    Spacer()
+                    VStack(spacing: AppSpacing.lg) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 48))
+                            .foregroundStyle(Color(hex: "FF6B6B").opacity(0.7))
+
+                        Text("Something went wrong")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(.white)
+
+                        Text(error)
+                            .font(.system(size: 14))
+                            .foregroundStyle(.white.opacity(0.5))
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, AppSpacing.xxxl)
+
+                        Button {
+                            errorMessage = nil
+                            fetchProfiles()
+                        } label: {
+                            Text("Try Again")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, AppSpacing.xxxl)
+                                .padding(.vertical, AppSpacing.md)
+                                .background(
+                                    LinearGradient(
+                                        colors: [Color(hex: "6C5CE7"), Color(hex: "845EC2")],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
+                                .clipShape(Capsule())
+                        }
                     }
                     Spacer()
                 } else if currentIndex >= profiles.count {
@@ -130,7 +201,9 @@ struct DiscoverView: View {
                                 .offset(y: isFirst ? 0 : 10)
                                 .gesture(isFirst ? dragGesture : nil)
                                 .onTapGesture {
-                                    if isFirst { showDetails.toggle() }
+                                    if isFirst {
+                                        selectedProfile = profile
+                                    }
                                 }
                         }
                     }
@@ -143,8 +216,8 @@ struct DiscoverView: View {
                             ActionCircleButton(icon: "xmark", size: 60, color: Color(hex: "B0B0B0"), borderColor: Color(hex: "B0B0B0")) {
                                 swipeLeft()
                             }
-                            ActionCircleButton(icon: "star.fill", size: 52, color: Color(hex: "A8D8EA"), borderColor: Color(hex: "A8D8EA")) {
-                                handleSwipe(.superlike, profile: profile)
+                            ActionCircleButton(icon: "star.fill", size: 52, color: AppColors.superLike, borderColor: AppColors.superLike) {
+                                swipeUp()
                             }
                             ActionCircleButton(icon: "heart.fill", size: 60, color: Color(hex: "98D4BB"), borderColor: Color(hex: "98D4BB")) {
                                 swipeRight()
@@ -162,6 +235,27 @@ struct DiscoverView: View {
                 animateOrbs = true
             }
         }
+        .navigationDestination(item: $selectedProfile) { profile in
+            MatchProfileDetailView(
+                userId: profile.id,
+                matchName: profile.name ?? "Unknown",
+                matchPhoto: profile.primaryPhoto ?? ""
+            )
+        }
+        .overlay(alignment: .top) {
+            if showSuperLikeFeedback, let msg = superLikeMessage {
+                Text(msg)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(AppColors.superLike.opacity(0.9))
+                    .clipShape(Capsule())
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .padding(.top, 60)
+            }
+        }
+        .animation(.easeInOut(duration: 0.3), value: showSuperLikeFeedback)
     }
 
     private var dragGesture: some Gesture {
@@ -170,7 +264,10 @@ struct DiscoverView: View {
                 offset = value.translation
             }
             .onEnded { value in
-                if value.translation.width > swipeThreshold {
+                let isVerticalSwipe = abs(value.translation.height) > abs(value.translation.width)
+                if isVerticalSwipe && value.translation.height < swipeUpThreshold {
+                    swipeUp()
+                } else if value.translation.width > swipeThreshold {
                     swipeRight()
                 } else if value.translation.width < -swipeThreshold {
                     swipeLeft()
@@ -204,33 +301,82 @@ struct DiscoverView: View {
         }
     }
 
+    private func swipeUp() {
+        guard let profile = profiles[safe: currentIndex] else { return }
+        withAnimation(.spring(response: 0.3)) {
+            offset = CGSize(width: 0, height: -600)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            handleSwipe(.superlike, profile: profile)
+            offset = .zero
+        }
+    }
+
     private func handleSwipe(_ action: SwipeAction, profile: DiscoverProfile) {
         currentIndex += 1
         guard !profile.id.hasPrefix("demo-") else { return }
 
         Task {
-            if action == .like || action == .superlike {
-                let query = """
-                mutation LikeUser($targetUserId: Int!) {
-                  likeUser(targetUserId: $targetUserId) { success isMutual matchId }
+            do {
+                if action == .superlike {
+                    try await sendSuperLike(targetUserId: profile.id)
+                } else if action == .like {
+                    let query = """
+                    mutation LikeUser($targetUserId: Int!) {
+                      likeUser(targetUserId: $targetUserId) { success isMutual matchId }
+                    }
+                    """
+                    let _: [String: Any] = try await APIService.shared.graphQL(
+                        query: query,
+                        variables: ["targetUserId": Int(profile.id) ?? 0]
+                    )
+                } else {
+                    let query = "mutation PassUser($targetUserId: Int!) { passUser(targetUserId: $targetUserId) }"
+                    let _: [String: Any] = try await APIService.shared.graphQL(
+                        query: query,
+                        variables: ["targetUserId": Int(profile.id) ?? 0]
+                    )
                 }
-                """
-                let _: [String: Any]? = try? await APIService.shared.graphQL(
-                    query: query,
-                    variables: ["targetUserId": Int(profile.id) ?? 0]
-                )
-            } else {
-                let query = "mutation PassUser($targetUserId: Int!) { passUser(targetUserId: $targetUserId) }"
-                let _: [String: Any]? = try? await APIService.shared.graphQL(
-                    query: query,
-                    variables: ["targetUserId": Int(profile.id) ?? 0]
-                )
+            } catch {
+                NavLog.warning("Swipe action failed for \(profile.id): \(error.localizedDescription)", category: .network)
             }
+        }
+    }
+
+    private func sendSuperLike(targetUserId: String) async throws {
+        struct SuperLikeResponse: Decodable {
+            let message: String?
+            let matchId: String?
+            let isMutual: Bool?
+            let isSuperLike: Bool?
+
+            enum CodingKeys: String, CodingKey {
+                case message
+                case matchId = "match_id"
+                case isMutual = "is_mutual"
+                case isSuperLike = "is_super_like"
+            }
+        }
+
+        let response: SuperLikeResponse = try await APIService.shared.post(
+            path: "/match/super-like",
+            body: ["target_user_id": Int(targetUserId) ?? 0]
+        )
+
+        await MainActor.run {
+            superLikeMessage = response.message ?? "Super Like sent!"
+            showSuperLikeFeedback = true
+        }
+
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        await MainActor.run {
+            showSuperLikeFeedback = false
         }
     }
 
     private func fetchProfiles() {
         isLoading = true
+        errorMessage = nil
         Task {
             do {
                 let query = """
@@ -265,11 +411,30 @@ struct DiscoverView: View {
                             languages: p["languages"] as? [String]
                         )
                     }
+                    LocalCache.shared.save(profiles, forKey: .discoverFeed)
                 } else {
                     profiles = DiscoverProfile.demos
                 }
+            } catch let apiError as APIError {
+                NavLog.error("Discover fetch failed: \(apiError.localizedDescription)", category: .network)
+                if profiles.isEmpty {
+                    if let cached = LocalCache.shared.loadStale([DiscoverProfile].self, forKey: .discoverFeed) {
+                        profiles = cached
+                    } else {
+                        errorMessage = apiError.errorDescription
+                        profiles = DiscoverProfile.demos
+                    }
+                }
             } catch {
-                profiles = DiscoverProfile.demos
+                NavLog.error("Discover fetch failed: \(error.localizedDescription)", category: .network)
+                if profiles.isEmpty {
+                    if let cached = LocalCache.shared.loadStale([DiscoverProfile].self, forKey: .discoverFeed) {
+                        profiles = cached
+                    } else {
+                        errorMessage = "Could not load profiles. Please try again."
+                        profiles = DiscoverProfile.demos
+                    }
+                }
             }
             currentIndex = 0
             isLoading = false
@@ -318,7 +483,7 @@ struct SwipeCard: View {
                     endPoint: .bottom
                 )
 
-                // LIKE / NOPE stamps
+                // LIKE / NOPE / SUPER LIKE stamps
                 if isFirst {
                     if offset.width > 40 {
                         Text("LIKE")
@@ -347,6 +512,22 @@ struct SwipeCard: View {
                             )
                             .rotationEffect(.degrees(-15))
                             .position(x: 80, y: 80)
+                    }
+                    if offset.height < -40 && abs(offset.height) > abs(offset.width) {
+                        VStack(spacing: 4) {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 28))
+                            Text("SUPER LIKE")
+                                .font(.system(size: 28, weight: .heavy))
+                        }
+                        .foregroundStyle(AppColors.superLike)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .strokeBorder(AppColors.superLike, lineWidth: 4)
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                     }
                 }
 
