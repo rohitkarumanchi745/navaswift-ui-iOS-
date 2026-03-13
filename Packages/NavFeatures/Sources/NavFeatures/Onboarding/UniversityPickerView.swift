@@ -64,7 +64,7 @@ struct UniversityPickerView: View {
                     }
 
                     // Dropdown results
-                    if showResults && !results.isEmpty {
+                    if showResults && (!results.isEmpty || !searchText.trimmingCharacters(in: .whitespaces).isEmpty) {
                         resultsDropdown
                             .padding(.top, 56)
                             .zIndex(10)
@@ -140,11 +140,22 @@ struct UniversityPickerView: View {
                 }
             }
         }
+        .onChange(of: isSearchFocused) { _, focused in
+            if focused && searchText.trimmingCharacters(in: .whitespaces).isEmpty && selectedUniversity.isEmpty {
+                results = UniversitySearchResult.demos
+                showResults = true
+            }
+        }
         .onChange(of: searchText) { _, newValue in
             let trimmed = newValue.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty {
-                results = []
-                showResults = false
+                if isSearchFocused && selectedUniversity.isEmpty {
+                    results = UniversitySearchResult.demos
+                    showResults = true
+                } else {
+                    results = []
+                    showResults = false
+                }
                 return
             }
             // Don't search if we already selected (text matches selection)
@@ -163,7 +174,8 @@ struct UniversityPickerView: View {
     // MARK: - Results Dropdown
 
     private var resultsDropdown: some View {
-        VStack(spacing: 0) {
+        let trimmedSearch = searchText.trimmingCharacters(in: .whitespaces)
+        return VStack(spacing: 0) {
             if isSearching {
                 HStack(spacing: 8) {
                     ProgressView()
@@ -175,7 +187,7 @@ struct UniversityPickerView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
-            } else {
+            } else if !results.isEmpty {
                 ScrollView {
                     LazyVStack(spacing: 0) {
                         ForEach(results.prefix(8)) { uni in
@@ -230,15 +242,49 @@ struct UniversityPickerView: View {
                                 .padding(.vertical, 12)
                             }
 
-                            if uni.id != results.prefix(8).last?.id {
-                                Color.white.opacity(0.06)
-                                    .frame(height: 1)
-                                    .padding(.leading, 54)
-                            }
+                            Color.white.opacity(0.06)
+                                .frame(height: 1)
+                                .padding(.leading, 54)
                         }
                     }
                 }
-                .frame(maxHeight: 300)
+                .frame(maxHeight: 260)
+            } else {
+                // No results found
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.3))
+                    Text("No matching universities found")
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.4))
+                }
+                .padding(.horizontal, 14).padding(.vertical, 14)
+                Color.white.opacity(0.06).frame(height: 1)
+            }
+
+            // "Use custom name" button — only when user typed something specific
+            if !trimmedSearch.isEmpty && !isSearching {
+                Button {
+                    selectedUniversity = trimmedSearch
+                    selectedLocation = ""
+                    searchText = trimmedSearch
+                    showResults = false
+                    isSearchFocused = false
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Color(hex: "C9A0DC"))
+                        Text("Use \"\(trimmedSearch)\"")
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundStyle(Color(hex: "C9A0DC"))
+                            .lineLimit(1)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 12)
+                    .background(Color(hex: "C9A0DC").opacity(0.08))
+                }
             }
         }
         .background(Color(hex: "2D3047"))

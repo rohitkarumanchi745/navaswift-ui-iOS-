@@ -12,6 +12,9 @@ struct PreferencesView: View {
     @State private var genders: Set<String> = []
     @State private var professions: Set<String> = []
     @State private var onlyVerified = false
+    @State private var alumniOnly = false
+    @State private var professionalOnly = false
+    @State private var newInTownOnly = false
     @State private var loading = true
     @State private var saving = false
     @State private var showAlert = false
@@ -119,14 +122,40 @@ struct PreferencesView: View {
                         }
                     }
 
-                    preferenceSection(title: "Verification") {
-                        Toggle(isOn: $onlyVerified) {
-                            HStack(spacing: 8) {
-                                Image(systemName: "checkmark.seal.fill").foregroundColor(AppColors.secondary)
-                                Text("Only show verified profiles").font(.subheadline).foregroundStyle(.white)
+                    preferenceSection(title: "Verification & Network") {
+                        VStack(spacing: 14) {
+                            Toggle(isOn: $onlyVerified) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "checkmark.seal.fill").foregroundColor(AppColors.secondary)
+                                    Text("Only show verified profiles").font(.subheadline).foregroundStyle(.white)
+                                }
                             }
+                            .tint(AppColors.purpleAccent)
+
+                            Toggle(isOn: $alumniOnly) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "graduationcap.fill").foregroundColor(Color(hex: "7ED4A6"))
+                                    Text("Alumni only").font(.subheadline).foregroundStyle(.white)
+                                }
+                            }
+                            .tint(AppColors.purpleAccent)
+
+                            Toggle(isOn: $professionalOnly) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "briefcase.fill").foregroundColor(Color(hex: "FFB347"))
+                                    Text("Professional club verified").font(.subheadline).foregroundStyle(.white)
+                                }
+                            }
+                            .tint(AppColors.purpleAccent)
+
+                            Toggle(isOn: $newInTownOnly) {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "mappin.and.ellipse").foregroundColor(Color(hex: "7BB3FF"))
+                                    Text("New in town").font(.subheadline).foregroundStyle(.white)
+                                }
+                            }
+                            .tint(AppColors.purpleAccent)
                         }
-                        .tint(AppColors.purpleAccent)
                     }
 
                     Button { savePreferences() } label: {
@@ -181,7 +210,7 @@ struct PreferencesView: View {
             let query = """
             query MyPreferences {
                 myPreferences {
-                    minAge maxAge maxDistanceKm preferredGenders preferredProfessions onlyVerified
+                    minAge maxAge maxDistanceKm preferredGenders preferredProfessions onlyVerified alumniOnly professionalOnly newInTownOnly
                 }
             }
             """
@@ -193,8 +222,19 @@ struct PreferencesView: View {
                 if let g = prefs["preferredGenders"] as? [String] { genders = Set(g) }
                 if let p = prefs["preferredProfessions"] as? [String] { professions = Set(p) }
                 if let v = prefs["onlyVerified"] as? Bool { onlyVerified = v }
+                if let v = prefs["alumniOnly"] as? Bool { alumniOnly = v }
+                if let v = prefs["professionalOnly"] as? Bool { professionalOnly = v }
+                if let v = prefs["newInTownOnly"] as? Bool { newInTownOnly = v }
             }
-        } catch {}
+        } catch {
+            ageMin = "22"; ageMax = "30"; distance = "25"
+            intent = "long_term"
+            genders = Set(["female"])
+            languages = Set(["Telugu", "English", "Hindi"])
+            professions = Set(["Software Engineer", "Designer"])
+            onlyVerified = false; alumniOnly = false
+            professionalOnly = false; newInTownOnly = false
+        }
         loading = false
     }
 
@@ -215,6 +255,9 @@ struct PreferencesView: View {
                         "maxDistanceKm": distanceKm, "preferredGenders": Array(genders),
                         "preferredProfessions": Array(professions),
                         "onlyVerified": onlyVerified,
+                        "alumniOnly": alumniOnly,
+                        "professionalOnly": professionalOnly,
+                        "newInTownOnly": newInTownOnly,
                     ]
                 ]
                 let _: [String: Any] = try await APIService.shared.graphQL(query: mutation, variables: variables)

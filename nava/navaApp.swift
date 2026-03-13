@@ -60,6 +60,7 @@ struct navaApp: App {
     @StateObject private var callManager = CallManager()
     @StateObject private var pushManager = PushNotificationManager()
     @StateObject private var networkMonitor = NetworkMonitor()
+    @StateObject private var reelUploadService = ReelUploadService()
 
     init() {
         // Wire APIService metrics into NetworkMetrics
@@ -86,6 +87,7 @@ struct navaApp: App {
                 .environmentObject(callManager)
                 .environmentObject(pushManager)
                 .environmentObject(networkMonitor)
+                .environmentObject(reelUploadService)
                 .task {
                     // Connect AppDelegate to PushNotificationManager
                     appDelegate.pushManager = pushManager

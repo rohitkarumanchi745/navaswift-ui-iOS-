@@ -368,20 +368,30 @@ public class AuthManager: ObservableObject {
             id: "demo-user-1",
             name: "Rohit",
             phoneNumber: "+919876543210",
+            dob: "1998-06-15",
             age: 27,
-            gender: "Male",
-            bio: "Software developer who loves building apps. Coffee enthusiast and weekend hiker.",
+            gender: "male",
+            bio: "Software developer who loves building apps. Coffee enthusiast and weekend hiker. Currently exploring the startup scene in Hyderabad and always down for a good biryani debate.",
             location: "Hyderabad",
             professionCategory: "tech",
             professionTitle: "iOS Developer",
             interests: ["Tech", "Coffee", "Hiking", "Music", "Travel"],
-            photos: ["https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80"],
+            photos: [
+                "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80",
+                "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=800&q=80",
+                "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80"
+            ],
             isProfileComplete: true,
             isVerified: true,
-            isStudentVerified: false,
+            isStudentVerified: true,
+            studentVerificationMethod: "email",
+            isAlumniVerified: true,
             heightCm: 178,
             languages: ["Telugu", "English", "Hindi"],
-            lookingFor: "long_term"
+            lookingFor: "long_term",
+            university: "IIT Bombay",
+            universityLocation: "Mumbai, India",
+            study: "Computer Science"
         )
         user = demoUser
         token = "demo-token"

@@ -32,9 +32,22 @@ public struct UpdateProfileView: View {
     @State private var universityLocation = ""
     @State private var study = ""
 
+    // Student Verification (inline in onboarding)
+    @State private var studentEmail = ""
+    @State private var studentOtp: [String] = Array(repeating: "", count: 6)
+    @State private var studentVerifyStep: StudentVerifyStep = .idle
+    @State private var isSendingCode = false
+    @State private var isVerifyingCode = false
+    @State private var studentVerifyMessage = ""
+    @State private var studentResendTimer = 0
+    @State private var detectedUniversityName = ""
+    @FocusState private var otpFocusField: Int?
+
+    enum StudentVerifyStep { case idle, enterEmail, enterOtp, verified, skipped }
+
     // Photos
     @State private var selectedPhotos: [PhotosPickerItem] = []
-    @State private var photoImages: [UIImage] = []
+    @State private var photoImages: [PlatformImage] = []
 
     @State private var isSaving = false
     @State private var showError = false
@@ -456,6 +469,19 @@ public struct UpdateProfileView: View {
                     selectedLocation: $universityLocation,
                     selectedStudy: $study
                 )
+                .onChange(of: university) { _, newUni in
+                    // Show email verification prompt when university is selected
+                    if !newUni.isEmpty && studentVerifyStep == .idle {
+                        studentVerifyStep = .enterEmail
+                    } else if newUni.isEmpty {
+                        studentVerifyStep = .idle
+                    }
+                }
+
+                // Inline student verification
+                if !university.isEmpty {
+                    studentVerificationSection
+                }
 
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
@@ -585,7 +611,7 @@ public struct UpdateProfileView: View {
                 ForEach(0..<3, id: \.self) { index in
                     if index < photoImages.count {
                         ZStack(alignment: .topTrailing) {
-                            Image(uiImage: photoImages[index])
+                            platformImageView(photoImages[index])
                                 .resizable()
                                 .scaledToFill()
                                 .frame(width: 100, height: 150)
@@ -625,7 +651,7 @@ public struct UpdateProfileView: View {
                             Task {
                                 for item in items {
                                     if let data = try? await item.loadTransferable(type: Data.self),
-                                       let image = UIImage(data: data) {
+                                       let image = decodeImageData(data) {
                                         photoImages.append(image)
                                     }
                                 }
@@ -647,6 +673,285 @@ public struct UpdateProfileView: View {
             Spacer()
         }
         .padding(.horizontal, 32)
+    }
+
+    // MARK: - Student Verification (Inline)
+
+    private var isValidStudentEmail: Bool {
+        let pattern = #"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.edu(\.[a-z]{2})?$"#
+        return studentEmail.range(of: pattern, options: .regularExpression) != nil
+    }
+
+    @ViewBuilder
+    private var studentVerificationSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "graduationcap.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color(hex: "4ECDC4"))
+                sectionLabel("VERIFY STUDENT STATUS")
+            }
+
+            switch studentVerifyStep {
+            case .verified:
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 18))
+                        .foregroundStyle(Color(hex: "4ECDC4"))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Student Verified")
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white)
+                        if !detectedUniversityName.isEmpty {
+                            Text(detectedUniversityName)
+                                .font(.system(size: 12, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.4))
+                        }
+                    }
+                    Spacer()
+                }
+                .padding(14)
+                .background(Color(hex: "4ECDC4").opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .strokeBorder(Color(hex: "4ECDC4").opacity(0.3), lineWidth: 1)
+                )
+
+            case .skipped:
+                HStack(spacing: 10) {
+                    Image(systemName: "envelope.badge")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.white.opacity(0.3))
+                    Text("You can verify later from your profile")
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.35))
+                    Spacer()
+                    Button {
+                        studentVerifyStep = .enterEmail
+                    } label: {
+                        Text("Verify")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color(hex: "4ECDC4"))
+                    }
+                }
+                .padding(14)
+                .background(.white.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+
+            case .enterEmail:
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Enter your university email to get a verified student badge")
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.4))
+
+                    HStack(spacing: 10) {
+                        Image(systemName: "envelope.fill")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.white.opacity(0.3))
+                        TextField("", text: $studentEmail,
+                                  prompt: Text("you@university.edu").foregroundStyle(.white.opacity(0.2)))
+                            .font(.system(size: 16, weight: .medium, design: .rounded))
+                            .foregroundStyle(.white)
+                            .keyboardType(.emailAddress)
+                            .textContentType(.emailAddress)
+                            .autocapitalization(.none)
+                            .autocorrectionDisabled()
+                    }
+                    .padding(14)
+                    .background(.white.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .strokeBorder(.white.opacity(0.1), lineWidth: 1)
+                    )
+
+                    if !studentEmail.isEmpty && !isValidStudentEmail {
+                        Text("Please enter a valid .edu email")
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundStyle(Color(hex: "FF5864"))
+                    }
+
+                    HStack(spacing: 10) {
+                        Button {
+                            sendStudentVerificationCode()
+                        } label: {
+                            HStack(spacing: 6) {
+                                if isSendingCode {
+                                    ProgressView().scaleEffect(0.7).tint(.white)
+                                }
+                                Text(isSendingCode ? "Sending..." : "Send Code")
+                                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                            }
+                            .foregroundStyle(isValidStudentEmail ? bg : bg.opacity(0.5))
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
+                            .background(isValidStudentEmail ? .white : .white.opacity(0.15))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .disabled(!isValidStudentEmail || isSendingCode)
+
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                studentVerifyStep = .skipped
+                            }
+                        } label: {
+                            Text("Skip")
+                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.35))
+                        }
+                    }
+                }
+                .padding(14)
+                .background(.white.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                )
+
+            case .enterOtp:
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Enter the 6-digit code sent to")
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.4))
+                    Text(studentEmail)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white.opacity(0.6))
+
+                    HStack(spacing: 6) {
+                        ForEach(0..<6, id: \.self) { index in
+                            TextField("", text: $studentOtp[index])
+                                .keyboardType(.numberPad)
+                                .multilineTextAlignment(.center)
+                                .font(.system(size: 20, weight: .bold, design: .rounded))
+                                .foregroundStyle(.white)
+                                .frame(height: 48)
+                                .background(studentOtp[index].isEmpty ? .white.opacity(0.06) : .white.opacity(0.1))
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 10)
+                                        .strokeBorder(studentOtp[index].isEmpty ? .white.opacity(0.1) : Color(hex: "4ECDC4").opacity(0.5), lineWidth: 1)
+                                )
+                                .focused($otpFocusField, equals: index)
+                                .onChange(of: studentOtp[index]) { _, newValue in
+                                    if newValue.count > 1 { studentOtp[index] = String(newValue.last!) }
+                                    if !newValue.isEmpty && index < 5 { otpFocusField = index + 1 }
+                                }
+                        }
+                    }
+
+                    if !studentVerifyMessage.isEmpty {
+                        Text(studentVerifyMessage)
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundStyle(Color(hex: "FF5864"))
+                    }
+
+                    HStack(spacing: 10) {
+                        Button {
+                            verifyStudentOtp()
+                        } label: {
+                            HStack(spacing: 6) {
+                                if isVerifyingCode {
+                                    ProgressView().scaleEffect(0.7).tint(.white)
+                                }
+                                Text(isVerifyingCode ? "Verifying..." : "Verify")
+                                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                            }
+                            .foregroundStyle(!studentOtp.contains("") ? bg : bg.opacity(0.5))
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 12)
+                            .background(!studentOtp.contains("") ? .white : .white.opacity(0.15))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
+                        .disabled(studentOtp.contains("") || isVerifyingCode)
+
+                        Button {
+                            if studentResendTimer == 0 { sendStudentVerificationCode() }
+                        } label: {
+                            Text(studentResendTimer > 0 ? "Resend (\(studentResendTimer)s)" : "Resend")
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                                .foregroundStyle(studentResendTimer > 0 ? .white.opacity(0.2) : .white.opacity(0.4))
+                        }
+                        .disabled(studentResendTimer > 0)
+
+                        Spacer()
+
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                studentVerifyStep = .enterEmail
+                                studentOtp = Array(repeating: "", count: 6)
+                                studentVerifyMessage = ""
+                            }
+                        } label: {
+                            Text("Back")
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.35))
+                        }
+                    }
+                }
+                .padding(14)
+                .background(.white.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14)
+                        .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+                )
+
+            case .idle:
+                EmptyView()
+            }
+        }
+    }
+
+    private func sendStudentVerificationCode() {
+        isSendingCode = true
+        studentVerifyMessage = ""
+        Task {
+            do {
+                struct VerifyResponse: Codable { let message: String?; let university_name: String? }
+                let result: VerifyResponse = try await APIService.shared.post(
+                    path: "/student/verify", body: ["email": studentEmail])
+                detectedUniversityName = result.university_name ?? ""
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    studentVerifyStep = .enterOtp
+                }
+                startStudentResendTimer()
+            } catch {
+                studentVerifyMessage = "Failed to send code. Check your email and try again."
+            }
+            isSendingCode = false
+        }
+    }
+
+    private func verifyStudentOtp() {
+        isVerifyingCode = true
+        studentVerifyMessage = ""
+        Task {
+            do {
+                let otpString = studentOtp.joined()
+                struct OtpResponse: Codable { let verified: Bool?; let university_name: String? }
+                var body: [String: Any] = ["email": studentEmail, "otp": otpString]
+                if !detectedUniversityName.isEmpty { body["university_name"] = detectedUniversityName }
+                let _: OtpResponse = try await APIService.shared.post(
+                    path: "/student/verify-otp", body: body)
+                await auth.refreshProfile()
+                withAnimation(.spring(response: 0.4)) {
+                    studentVerifyStep = .verified
+                }
+            } catch {
+                studentVerifyMessage = "Invalid code. Please try again."
+            }
+            isVerifyingCode = false
+        }
+    }
+
+    private func startStudentResendTimer() {
+        studentResendTimer = 60
+        Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { timer in
+            if studentResendTimer > 0 { studentResendTimer -= 1 }
+            else { timer.invalidate() }
+        }
     }
 
     // MARK: - Helpers
@@ -692,7 +997,7 @@ public struct UpdateProfileView: View {
                 // Encode photos as base64 data URIs
                 var photoVars: [String: Any] = [:]
                 for (index, image) in photoImages.prefix(3).enumerated() {
-                    if let data = image.jpegData(compressionQuality: 0.8) {
+                    if let data = imageToJPEGData(image, compressionQuality: 0.8) {
                         let base64 = data.base64EncodedString()
                         photoVars["profile_photo_\(index + 1)"] = "data:image/jpeg;base64,\(base64)"
                     }
@@ -784,7 +1089,7 @@ public struct UpdateProfileView: View {
 
 struct OnboardingSelfieView: View {
     @EnvironmentObject var auth: AuthManager
-    @State private var selfieImage: UIImage? = nil
+    @State private var selfieImage: PlatformImage? = nil
     @State private var selectedItem: PhotosPickerItem? = nil
     @State private var isSubmitting = false
     @State private var showAlert = false
@@ -846,7 +1151,7 @@ struct OnboardingSelfieView: View {
                             )
 
                         if let image = selfieImage {
-                            Image(uiImage: image)
+                            platformImageView(image)
                                 .resizable()
                                 .scaledToFill()
                                 .frame(height: 240)
@@ -866,7 +1171,7 @@ struct OnboardingSelfieView: View {
                 .onChange(of: selectedItem) { _, item in
                     Task {
                         if let data = try? await item?.loadTransferable(type: Data.self),
-                           let image = UIImage(data: data) {
+                           let image = decodeImageData(data) {
                             selfieImage = image
                         }
                     }
@@ -930,7 +1235,7 @@ struct OnboardingSelfieView: View {
 
     private func verifySelfie() {
         guard let image = selfieImage,
-              let imageData = image.jpegData(compressionQuality: 0.8) else { return }
+              let imageData = imageToJPEGData(image, compressionQuality: 0.8) else { return }
         isSubmitting = true
         Task {
             do {

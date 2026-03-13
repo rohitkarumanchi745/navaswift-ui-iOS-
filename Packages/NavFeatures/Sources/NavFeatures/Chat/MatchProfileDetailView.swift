@@ -10,132 +10,197 @@ struct MatchProfileDetailView: View {
     let userId: String
     let matchName: String
     let matchPhoto: String
+    var initialProfile: DiscoverProfile? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var profile: DiscoverProfile?
     @State private var reels: [Reel] = []
     @State private var isLoading = true
-    @State private var selectedPhotoIndex = 0
+
+    private var photos: [String] {
+        let p = profile?.photos ?? [matchPhoto]
+        return p.isEmpty ? [matchPhoto] : p
+    }
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 0) {
-                // Photo gallery
-                photoGallery
+        ZStack(alignment: .topLeading) {
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
+                    if isLoading {
+                        Rectangle().fill(AppColors.darkCard)
+                            .frame(height: 500)
+                            .overlay { ProgressView().tint(AppColors.purpleAccent) }
+                    } else {
+                        interleavedContent
+                    }
 
-                // Profile info
-                profileInfo
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
-
-                // Bio
-                if let bio = profile?.bio, !bio.isEmpty {
-                    bioSection(bio)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 20)
+                    Spacer().frame(height: 100)
                 }
-
-                // Interests
-                if let interests = profile?.interests, !interests.isEmpty {
-                    interestsSection(interests)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 20)
-                }
-
-                // Languages
-                if let languages = profile?.languages, !languages.isEmpty {
-                    languagesSection(languages)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 20)
-                }
-
-                // Reels
-                if !reels.isEmpty {
-                    reelsSection
-                        .padding(.top, 24)
-                }
-
-                Spacer().frame(height: 40)
             }
-        }
-        .background(AppColors.darkBg)
-        .overlay(alignment: .topLeading) {
+            .background(AppColors.darkBg)
+            .ignoresSafeArea(edges: .top)
+
+            // Back button
             Button { dismiss() } label: {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 36, height: 36)
-                    .background(.black.opacity(0.4))
+                    .frame(width: 38, height: 38)
+                    .background(.ultraThinMaterial.opacity(0.6))
                     .clipShape(Circle())
             }
             .padding(.leading, 16)
             .padding(.top, 56)
         }
-        .ignoresSafeArea(edges: .top)
         .navigationBarHidden(true)
         .task {
-            await fetchProfile()
+            if let initial = initialProfile {
+                profile = initial
+                isLoading = false
+            } else {
+                await fetchProfile()
+            }
             await fetchReels()
         }
     }
 
-    // MARK: - Photo Gallery
+    // MARK: - Interleaved Content
 
-    private var photoGallery: some View {
-        ZStack(alignment: .bottom) {
-            let photos = profile?.photos ?? [matchPhoto]
-            let validPhotos = photos.isEmpty ? [matchPhoto] : photos
+    @ViewBuilder
+    private var interleavedContent: some View {
+        // Photo 1 (hero) + Name overlay
+        heroPhoto
 
-            TabView(selection: $selectedPhotoIndex) {
-                ForEach(Array(validPhotos.enumerated()), id: \.offset) { index, photo in
-                    AsyncImage(url: AppConfig.resolvePhotoURL(photo)) { image in
-                        image.resizable().scaledToFill()
-                    } placeholder: {
-                        Rectangle().fill(AppColors.darkCard)
-                            .overlay { ProgressView() }
-                    }
-                    .tag(index)
+        // Profile info bar
+        profileInfo
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 4)
+
+        // Voice intro
+        if profile?.hasVoiceIntro == true, let voiceUrl = profile?.voiceIntroUrl, !voiceUrl.isEmpty {
+            VoiceIntroPlayer(url: voiceUrl)
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+        }
+
+        // Bio section
+        if let bio = profile?.bio, !bio.isEmpty {
+            sectionCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    sectionHeader("About")
+                    Text(bio)
+                        .font(.system(size: 16))
+                        .lineSpacing(5)
+                        .foregroundStyle(.white.opacity(0.9))
                 }
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
-            .frame(height: 480)
-            .clipped()
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+        }
 
-            // Gradient overlay
+        // Photo 2
+        if photos.count > 1 {
+            profilePhoto(photos[1])
+                .padding(.top, 16)
+        }
+
+        // Interests
+        if let interests = profile?.interests, !interests.isEmpty {
+            sectionCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    sectionHeader("Interests")
+                    FlowLayout(spacing: 8) {
+                        ForEach(interests, id: \.self) { interest in
+                            Text(interest)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(AppColors.purpleAccent)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(AppColors.purpleAccent.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+        }
+
+        // Photo 3
+        if photos.count > 2 {
+            profilePhoto(photos[2])
+                .padding(.top, 16)
+        }
+
+        // Languages
+        if let languages = profile?.languages, !languages.isEmpty {
+            sectionCard {
+                VStack(alignment: .leading, spacing: 10) {
+                    sectionHeader("Languages")
+                    HStack(spacing: 8) {
+                        ForEach(languages, id: \.self) { lang in
+                            HStack(spacing: 5) {
+                                Image(systemName: "globe")
+                                    .font(.system(size: 13))
+                                    .foregroundStyle(AppColors.superLike)
+                                Text(lang)
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundStyle(.white)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 7)
+                            .background(AppColors.superLike.opacity(0.1))
+                            .clipShape(Capsule())
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+        }
+
+        // Photo 4+
+        ForEach(Array(photos.dropFirst(3).enumerated()), id: \.offset) { _, photo in
+            profilePhoto(photo)
+                .padding(.top, 16)
+        }
+
+        // Reels
+        if !reels.isEmpty {
+            reelsSection
+                .padding(.top, 20)
+        }
+    }
+
+    // MARK: - Hero Photo (first photo with name overlay)
+
+    private var heroPhoto: some View {
+        ZStack(alignment: .bottom) {
+            profilePhotoImage(photos[0])
+                .frame(height: 520)
+                .clipped()
+
+            // Gradient
             LinearGradient(
-                colors: [.clear, .clear, .black.opacity(0.6)],
+                stops: [
+                    .init(color: .clear, location: 0.4),
+                    .init(color: .black.opacity(0.7), location: 1.0)
+                ],
                 startPoint: .top,
                 endPoint: .bottom
             )
 
-            // Photo indicators
-            if validPhotos.count > 1 {
-                HStack(spacing: 6) {
-                    ForEach(0..<validPhotos.count, id: \.self) { i in
-                        Capsule()
-                            .fill(i == selectedPhotoIndex ? .white : .white.opacity(0.4))
-                            .frame(width: i == selectedPhotoIndex ? 24 : 8, height: 4)
-                            .animation(.easeInOut(duration: 0.2), value: selectedPhotoIndex)
-                    }
-                }
-                .padding(.bottom, 12)
-            }
-        }
-    }
-
-    // MARK: - Profile Info
-
-    private var profileInfo: some View {
-        VStack(alignment: .leading, spacing: 8) {
+            // Name + age
             HStack(spacing: 10) {
                 Text(profile?.name ?? matchName)
-                    .font(.system(size: 28, weight: .bold))
+                    .font(.system(size: 32, weight: .bold))
                     .foregroundStyle(.white)
 
                 if let age = profile?.age {
                     Text("\(age)")
-                        .font(.system(size: 26))
-                        .foregroundStyle(.white.opacity(0.6))
+                        .font(.system(size: 30, weight: .light))
+                        .foregroundStyle(.white.opacity(0.8))
                 }
 
                 if profile?.isVerified == true {
@@ -146,114 +211,117 @@ struct MatchProfileDetailView: View {
 
                 Spacer()
             }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
 
-            HStack(spacing: 16) {
-                if let location = profile?.location, !location.isEmpty {
-                    HStack(spacing: 4) {
-                        Image(systemName: "mappin.circle.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(AppColors.purpleAccent)
-                        Text(location)
-                            .font(.system(size: 15))
-                            .foregroundStyle(.white.opacity(0.6))
-                    }
-                }
-
-                if let profession = profile?.profession, !profession.isEmpty {
-                    HStack(spacing: 4) {
-                        Image(systemName: "briefcase.fill")
-                            .font(.system(size: 13))
-                            .foregroundStyle(AppColors.purpleAccent)
-                        Text(profession)
-                            .font(.system(size: 15))
-                            .foregroundStyle(.white.opacity(0.6))
-                    }
-                }
-            }
-
+            // Match score badge top-right
             if let score = profile?.compatibilityScore, score > 0 {
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
                     Image(systemName: "sparkles")
-                        .font(.system(size: 14))
-                        .foregroundStyle(AppColors.gold)
+                        .font(.system(size: 11, weight: .semibold))
                     Text("\(score)% Match")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(AppColors.gold)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
                 }
+                .foregroundStyle(AppColors.gold)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(AppColors.gold.opacity(0.1))
+                .padding(.vertical, 7)
+                .background(.ultraThinMaterial.opacity(0.7))
                 .clipShape(Capsule())
-                .padding(.top, 4)
-            }
-
-            // Voice intro
-            if profile?.hasVoiceIntro == true, let voiceUrl = profile?.voiceIntroUrl, !voiceUrl.isEmpty {
-                VoiceIntroPlayer(url: voiceUrl)
-                    .padding(.top, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(.trailing, 16)
+                .padding(.top, 56)
             }
         }
     }
 
-    // MARK: - Sections
+    // MARK: - Profile Info
 
-    private func bioSection(_ bio: String) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionHeader("About")
-            Text(bio)
-                .font(.system(size: 16))
-                .lineSpacing(5)
-                .foregroundStyle(.white)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(AppColors.darkCard)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
-    }
+    private var profileInfo: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let location = profile?.location, !location.isEmpty {
+                HStack(spacing: 5) {
+                    Image(systemName: "mappin.circle.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(AppColors.purpleAccent)
+                    Text(location)
+                        .font(.system(size: 15))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+            }
 
-    private func interestsSection(_ interests: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionHeader("Interests")
-            FlowLayout(spacing: 8) {
-                ForEach(interests, id: \.self) { interest in
-                    Text(interest)
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(AppColors.primary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
-                        .background(AppColors.primary.opacity(0.1))
-                        .clipShape(Capsule())
+            if let profession = profile?.profession, !profession.isEmpty {
+                HStack(spacing: 5) {
+                    Image(systemName: "briefcase.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(AppColors.purpleAccent)
+                    Text(profession)
+                        .font(.system(size: 15))
+                        .foregroundStyle(.white.opacity(0.7))
                 }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(AppColors.darkCard)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
-    private func languagesSection(_ languages: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionHeader("Languages")
-            HStack(spacing: 8) {
-                Image(systemName: "globe")
-                    .font(.system(size: 16))
-                    .foregroundStyle(AppColors.secondary)
-                Text(languages.joined(separator: " · "))
-                    .font(.system(size: 15))
-                    .foregroundStyle(.white)
+    // MARK: - Photo Components
+
+    private func profilePhoto(_ photo: String) -> some View {
+        profilePhotoImage(photo)
+            .frame(maxWidth: .infinity)
+            .aspectRatio(3/4, contentMode: .fill)
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, 20)
+    }
+
+    @ViewBuilder
+    private func profilePhotoImage(_ photo: String) -> some View {
+        if let url = AppConfig.resolvePhotoURL(photo) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image.resizable().scaledToFill()
+                case .failure:
+                    photoPlaceholder
+                case .empty:
+                    photoPlaceholder
+                        .overlay { ProgressView().tint(.white.opacity(0.5)) }
+                @unknown default:
+                    photoPlaceholder
+                }
             }
+        } else {
+            photoPlaceholder
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(AppColors.darkCard)
-        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var photoPlaceholder: some View {
+        LinearGradient(
+            colors: [Color(hex: "2A1F3D"), Color(hex: "1C1B2E"), Color(hex: "2D1B4E")],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+        .overlay {
+            Image(systemName: "person.crop.circle")
+                .font(.system(size: 52, weight: .thin))
+                .foregroundStyle(.white.opacity(0.15))
+        }
+    }
+
+    // MARK: - Section Helpers
+
+    private func sectionCard(@ViewBuilder content: () -> some View) -> some View {
+        content()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
+            .background(AppColors.darkCard)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
             .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(AppColors.darkTextMuted)
+            .foregroundStyle(.white.opacity(0.4))
             .textCase(.uppercase)
             .tracking(0.5)
     }
@@ -265,12 +333,8 @@ struct MatchProfileDetailView: View {
             HStack {
                 Image(systemName: "play.rectangle.fill")
                     .font(.system(size: 16))
-                    .foregroundStyle(AppColors.primary)
-                Text("Reels")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(AppColors.darkTextMuted)
-                    .textCase(.uppercase)
-                    .tracking(0.5)
+                    .foregroundStyle(AppColors.purpleAccent)
+                sectionHeader("Reels")
             }
             .padding(.horizontal, 20)
 
@@ -290,41 +354,46 @@ struct MatchProfileDetailView: View {
     private func fetchProfile() async {
         isLoading = true
         do {
-            let query = """
-            query UserProfile($userId: Int!) {
-                userProfile(userId: $userId) {
-                    id name age gender bio location
-                    professionTitle interests photos
-                    isVerified voiceIntroUrl
-                    languages lookingFor heightCm
-                    compatibilityScore hasVoiceIntro hasReels
-                }
-            }
-            """
-            let result: [String: Any] = try await APIService.shared.graphQL(
-                query: query,
-                variables: ["userId": Int(userId) ?? 0]
+            let result: DiscoverProfile = try await APIService.shared.get(
+                path: "/profile/\(userId)"
             )
-            if let user = result["userProfile"] as? [String: Any] {
-                profile = DiscoverProfile(
-                    id: "\(user["id"] ?? userId)",
-                    name: user["name"] as? String ?? matchName,
-                    age: user["age"] as? Int,
-                    location: user["location"] as? String,
-                    profession: user["professionTitle"] as? String,
-                    compatibilityScore: user["compatibilityScore"] as? Int,
-                    bio: user["bio"] as? String,
-                    interests: user["interests"] as? [String],
-                    photos: user["photos"] as? [String],
-                    isVerified: user["isVerified"] as? Bool ?? false,
-                    voiceIntroUrl: user["voiceIntroUrl"] as? String,
-                    hasVoiceIntro: user["hasVoiceIntro"] as? Bool ?? false,
-                    hasReels: user["hasReels"] as? Bool ?? false,
-                    languages: user["languages"] as? [String]
-                )
-            }
+            profile = result
         } catch {
-            // Use fallback demo profile if API fails
+            do {
+                let query = """
+                query Discover($filters: DiscoverFilters) {
+                  discover(filters: $filters) {
+                    id name age bio location photos interests languages
+                    compatibilityScore isVerified professionTitle voiceIntroUrl hasVoiceIntro hasReels
+                  }
+                }
+                """
+                let result: [String: Any] = try await APIService.shared.graphQL(
+                    query: query,
+                    variables: ["filters": ["userId": Int(userId) ?? 0, "limit": 1]]
+                )
+                if let discover = result["discover"] as? [[String: Any]],
+                   let user = discover.first {
+                    profile = DiscoverProfile(
+                        id: "\(user["id"] ?? userId)",
+                        name: user["name"] as? String ?? matchName,
+                        age: user["age"] as? Int,
+                        location: user["location"] as? String,
+                        profession: user["professionTitle"] as? String,
+                        compatibilityScore: (user["compatibilityScore"] as? Double).map { Int($0) },
+                        bio: user["bio"] as? String,
+                        interests: user["interests"] as? [String],
+                        photos: user["photos"] as? [String],
+                        isVerified: user["isVerified"] as? Bool ?? false,
+                        voiceIntroUrl: user["voiceIntroUrl"] as? String,
+                        hasVoiceIntro: user["hasVoiceIntro"] as? Bool ?? false,
+                        hasReels: user["hasReels"] as? Bool ?? false,
+                        languages: user["languages"] as? [String]
+                    )
+                }
+            } catch {
+                // fallback
+            }
             if profile == nil {
                 profile = makeDemoProfile()
             }
@@ -363,7 +432,6 @@ struct MatchProfileDetailView: View {
     }
 
     private func makeDemoProfile() -> DiscoverProfile {
-        // Build a reasonable demo profile from the match info we already have
         DiscoverProfile(
             id: userId,
             name: matchName,
@@ -394,23 +462,23 @@ private struct VoiceIntroPlayer: View {
             HStack(spacing: 10) {
                 Image(systemName: isPlaying ? "stop.circle.fill" : "play.circle.fill")
                     .font(.system(size: 28))
-                    .foregroundStyle(AppColors.primary)
+                    .foregroundStyle(AppColors.purpleAccent)
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Voice Intro")
                         .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
                     Text(isPlaying ? "Playing..." : "Tap to listen")
                         .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.white.opacity(0.5))
                 }
 
                 Spacer()
 
-                // Waveform visualization
                 HStack(spacing: 2) {
                     ForEach(0..<12, id: \.self) { i in
                         RoundedRectangle(cornerRadius: 1)
-                            .fill(AppColors.primary.opacity(isPlaying ? 0.8 : 0.3))
+                            .fill(AppColors.purpleAccent.opacity(isPlaying ? 0.8 : 0.3))
                             .frame(width: 3, height: CGFloat.random(in: 8...24))
                             .animation(isPlaying ?
                                 .easeInOut(duration: 0.3).repeatForever().delay(Double(i) * 0.05) :
@@ -419,7 +487,7 @@ private struct VoiceIntroPlayer: View {
                 }
             }
             .padding(14)
-            .background(AppColors.primary.opacity(0.08))
+            .background(AppColors.purpleAccent.opacity(0.08))
             .clipShape(RoundedRectangle(cornerRadius: 14))
         }
         .buttonStyle(.plain)
@@ -458,20 +526,17 @@ struct ReelThumbnailCard: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            // Gradient background (thumbnail placeholder)
             LinearGradient(
                 colors: [Color(hex: "1A1A2E"), Color(hex: "16213E"), Color(hex: "0F3460")],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
 
-            // Play icon
             Image(systemName: "play.fill")
                 .font(.system(size: 24))
                 .foregroundStyle(.white.opacity(0.6))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            // Caption + likes
             VStack(alignment: .leading, spacing: 4) {
                 if !reel.caption.isEmpty {
                     Text(reel.caption)

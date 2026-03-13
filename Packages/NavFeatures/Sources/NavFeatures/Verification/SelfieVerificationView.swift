@@ -6,10 +6,8 @@ import NavServices
 
 #if canImport(UIKit)
 import UIKit
-private typealias PlatformImage = UIImage
 #elseif canImport(AppKit)
 import AppKit
-private typealias PlatformImage = NSImage
 #endif
 
 struct SelfieVerificationView: View {
@@ -69,7 +67,7 @@ struct SelfieVerificationView: View {
                     .onChange(of: selectedItem) { _, item in
                         Task {
                             if let data = try? await item?.loadTransferable(type: Data.self),
-                               let image = PlatformImage(data: data) {
+                               let image = decodeImageData(data) {
                                 selfieImage = image
                             }
                         }
@@ -110,19 +108,10 @@ struct SelfieVerificationView: View {
         isSubmitting = true
         Task {
             do {
-                #if canImport(UIKit)
-                guard let imageData = image.jpegData(compressionQuality: 0.8) else {
+                guard let imageData = imageToJPEGData(image, compressionQuality: 0.8) else {
                     alertMessage = "Could not process image."
                     isSubmitting = false; showAlert = true; return
                 }
-                #elseif canImport(AppKit)
-                guard let tiffData = image.tiffRepresentation,
-                      let bitmap = NSBitmapImageRep(data: tiffData),
-                      let imageData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else {
-                    alertMessage = "Could not process image."
-                    isSubmitting = false; showAlert = true; return
-                }
-                #endif
 
                 struct VerifyResponse: Codable {
                     let verified: Bool?; let message: String?; let confidence: Double?

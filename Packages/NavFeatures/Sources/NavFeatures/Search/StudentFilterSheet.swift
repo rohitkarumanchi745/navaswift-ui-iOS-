@@ -13,6 +13,8 @@ struct StudentFilterSheet: View {
     @State private var minAge: Double = 18
     @State private var maxAge: Double = 30
     @State private var tier: String = ""
+    @State private var classYear: String = ""
+    @State private var alumniOnly: Bool = false
 
     private let countryOptions = ["", "IND", "USA", "GBR", "AUS"]
     private let countryLabels = ["All", "India", "USA", "UK", "Australia"]
@@ -20,6 +22,8 @@ struct StudentFilterSheet: View {
     private let genderLabels = ["All", "Male", "Female"]
     private let tierOptions = ["", "top_private", "top_public"]
     private let tierLabels = ["All", "Top Private", "Top Public"]
+    private let classYearOptions = ["", "2024", "2025", "2026", "2027", "2028"]
+    private let classYearLabels = ["All", "2024", "2025", "2026", "2027", "2028"]
 
     var body: some View {
         NavigationStack {
@@ -81,6 +85,25 @@ struct StudentFilterSheet: View {
                         chipRow(options: tierOptions, labels: tierLabels, selected: $tier)
                     }
 
+                    // Class Year
+                    filterSection("Class Year") {
+                        chipRow(options: classYearOptions, labels: classYearLabels, selected: $classYear)
+                    }
+
+                    // Alumni Only
+                    filterSection("Alumni") {
+                        Toggle(isOn: $alumniOnly) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "graduationcap.fill")
+                                    .foregroundColor(Color(hex: "7ED4A6"))
+                                Text("Show alumni only")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                        .tint(Color(hex: "6C5CE7"))
+                    }
+
                     // Apply button
                     Button {
                         filters.university = university
@@ -90,6 +113,8 @@ struct StudentFilterSheet: View {
                         filters.minAge = Int(minAge)
                         filters.maxAge = Int(maxAge)
                         filters.tier = tier
+                        filters.classYear = classYear
+                        filters.alumniOnly = alumniOnly
                         onApply()
                         dismiss()
                     } label: {
@@ -117,6 +142,8 @@ struct StudentFilterSheet: View {
                         minAge = 18
                         maxAge = 30
                         tier = ""
+                        classYear = ""
+                        alumniOnly = false
                     } label: {
                         Text("Clear All")
                             .font(.system(size: 14, weight: .medium))
@@ -147,6 +174,8 @@ struct StudentFilterSheet: View {
             minAge = Double(filters.minAge)
             maxAge = Double(filters.maxAge)
             tier = filters.tier
+            classYear = filters.classYear
+            alumniOnly = filters.alumniOnly
         }
     }
 

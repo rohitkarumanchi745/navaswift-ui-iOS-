@@ -7,11 +7,11 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 ### Discovery & Matching
 - **Swipe-based discovery** with like, pass, and swipe-up super-like gestures
 - **Super Like** flow with dedicated `POST /match/super-like` endpoint, animated stamp overlay, and feedback banner
-- **AI-powered insights** for match recommendations
+- **AI-powered insights** for match recommendations with compatibility scoring
 - **Location-based** proximity filtering with configurable distance
 - **University discovery** for student-verified profiles
 - **Sent Likes** view with super-liked vs regular likes separated into sections
-- **Matches** view with "Super Liked You" horizontal carousel and regular likes grid
+- **Matches** view with "Super Liked You" horizontal carousel, message requests, and regular likes grid
 
 ### Student Search
 - **University-grouped results** — search results grouped by university with sticky headers showing graduation cap icon, university name, and student count
@@ -22,14 +22,18 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 
 ### Reels
 - **Short-form video reels** for profile expression
+- **Parallel pipeline upload** — compression starts immediately on video pick, filter export runs while user browses, upload fires on Post tap
+- **7 video filters** (Original, Vivid, Warm, Cool, Vintage, Drama, Fade) with real-time CIFilter preview thumbnails
+- **AVVideoComposition-based** per-frame filter export with progress tracking
 - **Private messaging** on reels (Instagram-style DM via reel)
 - **Reel inbox** with conversation threads
 - **Reel message composer** with reply context
-- Video upload with caption and category tagging
+- **Floating upload progress pill** showing pipeline status across all tabs
 
 ### Chat & Communication
 - **Real-time WebSocket chat** with typing indicators and read receipts
 - **GraphQL-powered** message history with pagination
+- **Message requests** with accept/decline flow
 - **Voice & video call** integration (WebRTC signaling via `CallManager`)
 - Conversation list with unread badges
 
@@ -42,12 +46,20 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 
 ### Verification
 - **Selfie verification** with liveness detection
-- **Student verification** via university email OTP
+- **Student verification** via university email OTP with multi-step flow
+- **Student ID verification** with photo upload
+- **Alumni verification** for graduated users
+- **Campus verification** with location-based check-in
+- **Enrollment proof** upload for manual review
+- **Professional verification** for working professionals
 - **Voice intro** recording and playback
 
 ### Profile & Settings
 - Profile editing with photo upload and **university picker** (API-driven autocomplete)
+- **Interleaved profile detail view** — photos interspersed with bio, interests, languages, and reels sections
+- **My Reels** section on profile with horizontal thumbnail carousel
 - Preference management (age range, distance, interests)
+- **Invite friends** sharing flow
 - Notification preferences
 - Safety appeal submission
 - Content moderation status display
@@ -57,10 +69,11 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 ### Infrastructure
 - **Deep linking** support for navigating to profiles, matches, and reels
 - **Network monitoring** with connectivity status
-- **Network metrics** tracking for API performance
-- **Push notification** management
+- **Network metrics** tracking for API performance with circuit breaker
+- **Push notification** management with background fetch
 - **Local caching** for offline data persistence
 - **Structured logging** via `NavLog` with categories
+- **HEIF/WebP image decoding** support
 
 ## Architecture
 
@@ -78,11 +91,13 @@ nava/
 │   ├── NavCore/                       # Shared models, theme, utilities
 │   │   └── Sources/NavCore/
 │   │       ├── Models/
-│   │       │   ├── UserProfile.swift          # User, Match, Chat models
+│   │       │   ├── UserProfile.swift          # User, Match, Chat, DiscoverProfile models
 │   │       │   ├── StudentModels.swift        # Search, filters, student results
 │   │       │   ├── UniversityModels.swift     # University search/autocomplete models
 │   │       │   ├── GraphQLModels.swift        # GraphQL response types
 │   │       │   ├── ReelMessageModels.swift    # Reel messaging models
+│   │       │   ├── AIInsightsModels.swift     # AI insights response models
+│   │       │   ├── VerificationModels.swift   # Verification status/type models
 │   │       │   ├── StoreProductID.swift       # IAP product identifiers
 │   │       │   └── ModerationStatus.swift     # Content moderation states
 │   │       ├── Theme/
@@ -92,7 +107,8 @@ nava/
 │   │       │   ├── FlowLayout.swift           # Flow layout helper
 │   │       │   └── ModeratedPhotoView.swift   # Photo with moderation overlay
 │   │       ├── Extensions/
-│   │       │   └── Array+Safe.swift           # Safe array subscript
+│   │       │   ├── Array+Safe.swift           # Safe array subscript
+│   │       │   └── ImageDecoding.swift        # HEIF/WebP image format support
 │   │       ├── DeepLink.swift                 # Deep link routing
 │   │       ├── LocalCache.swift               # Disk-based caching
 │   │       └── Logger.swift                   # Structured logging (NavLog)
@@ -112,7 +128,9 @@ nava/
 │   │       ├── NetworkMonitor.swift           # NWPathMonitor connectivity
 │   │       ├── NetworkMetrics.swift           # API latency/error tracking
 │   │       ├── PushNotificationManager.swift  # APNs registration + handling
-│   │       └── NotificationOutcome.swift      # Notification action results
+│   │       ├── NotificationOutcome.swift      # Notification action results
+│   │       ├── ReelUploadService.swift        # Parallel pipeline reel upload (compress → filter → upload)
+│   │       └── VideoFilter.swift              # 7-filter enum with CIFilter + AVVideoComposition export
 │   │
 │   └── NavFeatures/                   # All UI views
 │       └── Sources/NavFeatures/
@@ -125,14 +143,15 @@ nava/
 │           │   ├── StudentCard.swift          # Student result card
 │           │   └── StudentFilterSheet.swift   # Filter modal
 │           ├── Matches/
-│           │   └── MatchesView.swift          # Match list with super like carousel
+│           │   ├── MatchesView.swift          # Match list with super like carousel
+│           │   └── MessageRequestDetailView.swift  # Message request accept/decline
 │           ├── Chat/
 │           │   ├── ConversationsView.swift    # Conversation list
 │           │   ├── ChatView.swift             # Chat messages
 │           │   ├── CallView.swift             # Voice/video call UI
-│           │   └── MatchProfileDetailView.swift  # Profile detail from match
+│           │   └── MatchProfileDetailView.swift  # Interleaved profile detail from match/discover
 │           ├── Reels/
-│           │   ├── ReelsView.swift            # Vertical reel feed
+│           │   ├── ReelsView.swift            # Vertical reel feed + upload flow + filter carousel
 │           │   ├── ReelConversationView.swift # Reel DM thread
 │           │   ├── ReelInboxView.swift        # Reel message inbox
 │           │   └── ReelMessageComposer.swift  # Reel message input
@@ -148,16 +167,22 @@ nava/
 │           │   ├── SettingsView.swift         # Settings menu
 │           │   ├── EditProfileView.swift      # Edit profile with university picker
 │           │   ├── PreferencesView.swift      # Match preferences
+│           │   ├── InviteView.swift           # Invite friends sharing
 │           │   ├── NotificationPreferencesView.swift  # Push notification settings
 │           │   └── SafetyAppealView.swift     # Appeal moderation decisions
 │           ├── Profile/
-│           │   └── ProfileView.swift          # User profile display
+│           │   └── ProfileView.swift          # User profile with My Reels section
 │           ├── Verification/
-│           │   ├── SelfieVerificationView.swift   # Liveness selfie check
-│           │   ├── StudentVerificationView.swift  # University email OTP
-│           │   └── VoiceIntroView.swift           # Voice intro recording
+│           │   ├── SelfieVerificationView.swift      # Liveness selfie check
+│           │   ├── StudentVerificationView.swift     # University email OTP (multi-step)
+│           │   ├── StudentIDVerificationView.swift   # Student ID photo upload
+│           │   ├── AlumniVerificationView.swift      # Alumni verification flow
+│           │   ├── CampusVerificationView.swift      # Location-based campus check-in
+│           │   ├── EnrollmentProofView.swift         # Enrollment document upload
+│           │   ├── ProfessionalVerificationView.swift # Professional verification
+│           │   └── VoiceIntroView.swift              # Voice intro recording
 │           ├── AI/
-│           │   └── AIInsightsView.swift       # AI match insights
+│           │   └── AIInsightsView.swift       # AI match insights with compatibility
 │           └── Legal/
 │               ├── PrivacyPolicyView.swift    # Privacy policy
 │               └── TermsOfServiceView.swift   # Terms of service
@@ -189,7 +214,8 @@ nava app target  (entry point — depends on all packages)
 | Payments | StoreKit 2 (`Product`, `Transaction`, `AppStore.sync()`) |
 | Auth | OTP via phone number, JWT tokens, Keychain storage |
 | Location | CoreLocation with backend sync |
-| Media | `AVPlayer` for reels, `AsyncImage` for photos |
+| Media | `AVPlayer` for reels, `AVAssetExportSession` + `AVVideoComposition` for video filters, `AsyncImage` for photos |
+| Image Processing | CoreImage (`CIFilter`) for real-time video filters |
 | Connectivity | `NWPathMonitor` for network status |
 
 ## Backend
@@ -225,17 +251,17 @@ Configure in `Packages/NavNetworking/Sources/NavNetworking/AppConfig.swift`.
 | Feature | Endpoint | Method |
 |---------|----------|--------|
 | Auth | `/send-otp`, `/verify-otp` | POST |
-| Profile | `/update-profile`, `/profile/me` | POST, GET |
+| Profile | `/update-profile`, `/profile/me`, `/profile/:id` | POST, GET |
 | Discovery | GraphQL `discover`, `likeUser`, `passUser` | POST |
 | Super Like | `/match/super-like` | POST |
 | Student Search | `/search/students?q=...&limit=...&offset=...` | GET |
 | Search Suggestions | `/search/students/suggestions` | GET |
 | University Autocomplete | `/universities/search?q=...&limit=8` | GET |
 | Chat | `/ws/chat` (WebSocket), GraphQL queries | WS, POST |
-| Reels | `/reels`, `/reels/feed`, `/reels/message` | POST, GET |
+| Reels | `/reels`, `/reels/feed`, `/reels/user/:id`, `/reels/message` | POST, GET |
 | Payments | `/api/payments/verify-apple` | POST |
 | Location | `/location/update` | POST |
-| Verification | `/verify/selfie`, `/student/verify` | POST |
+| Verification | `/verify/selfie`, `/student/verify`, `/student/verify-id` | POST |
 | Account | `/account/delete` | POST |
 
 ## License

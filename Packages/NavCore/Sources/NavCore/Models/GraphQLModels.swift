@@ -96,6 +96,10 @@ public struct MeData: Decodable {
         public let isProfileComplete: FlexibleBool?
         public let isVerified: Bool?
         public let isStudentVerified: Bool?
+        public let studentVerificationMethod: String?
+        public let isAlumniVerified: Bool?
+        public let isProfessionalVerified: Bool?
+        public let isNewInTown: Bool?
         public let voiceIntroUrl: String?
     }
 }

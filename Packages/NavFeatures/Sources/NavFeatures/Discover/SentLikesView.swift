@@ -177,27 +177,25 @@ struct SentLikesView: View {
             let query = """
             query {
                 sentLikes {
-                    id
-                    targetUser { id name age photos }
-                    likedAt
+                    id name age photo likeType likedAt
                 }
             }
             """
             let result: [String: Any] = try await APIService.shared.graphQL(query: query)
-            if let items = result["sentLikes"] as? [[String: Any]], !items.isEmpty {
-                sentLikes = items.compactMap { item -> SentLikeProfile? in
-                    guard let user = item["targetUser"] as? [String: Any] else { return nil }
-                    let photos = user["photos"] as? [String]
+            if let likeList = result["sentLikes"] as? [[String: Any]] {
+                let fetched = likeList.compactMap { item -> SentLikeProfile? in
+                    guard let id = item["id"] as? String else { return nil }
                     let likeType = item["likeType"] as? String ?? "swipe"
                     return SentLikeProfile(
-                        id: "\(user["id"] ?? "")",
-                        name: user["name"] as? String ?? "Unknown",
-                        age: user["age"] as? Int ?? 0,
-                        photo: photos?.first ?? "",
+                        id: id,
+                        name: item["name"] as? String ?? "Unknown",
+                        age: item["age"] as? Int ?? 0,
+                        photo: item["photo"] as? String ?? "",
                         isSuperLike: likeType == "super_like",
                         likedAt: formatTimestamp(item["likedAt"] as? String) ?? ""
                     )
                 }
+                sentLikes = fetched.isEmpty ? SentLikeProfile.demos : fetched
             } else {
                 sentLikes = SentLikeProfile.demos
             }
@@ -243,6 +241,18 @@ struct SentLikeProfile: Identifiable {
         SentLikeProfile(id: "sl4", name: "Meera", age: 27,
                         photo: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400",
                         isSuperLike: true, likedAt: "2d"),
+        SentLikeProfile(id: "sl5", name: "Kavya", age: 24,
+                        photo: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=400",
+                        isSuperLike: false, likedAt: "3d"),
+        SentLikeProfile(id: "sl6", name: "Diya", age: 26,
+                        photo: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400",
+                        isSuperLike: true, likedAt: "4h"),
+        SentLikeProfile(id: "sl7", name: "Rohan", age: 28,
+                        photo: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400",
+                        isSuperLike: false, likedAt: "1d"),
+        SentLikeProfile(id: "sl8", name: "Aditya", age: 27,
+                        photo: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400",
+                        isSuperLike: false, likedAt: "3d"),
     ]
 }
 

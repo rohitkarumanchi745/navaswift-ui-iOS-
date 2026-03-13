@@ -187,6 +187,7 @@ struct ReelsView: View {
     @Binding var selectedTab: Int
     @EnvironmentObject var auth: AuthManager
     @EnvironmentObject var storeKit: StoreKitManager
+    @EnvironmentObject var uploadService: ReelUploadService
     @State private var currentIndex = 0
     @State private var reels: [Reel] = []
     @State private var showUploadSheet = false
@@ -305,9 +306,22 @@ struct ReelsView: View {
                 DraggableTabBar(selectedTab: $selectedTab)
             }
             .ignoresSafeArea(.container, edges: .bottom)
+
+            // Floating upload progress pill
+            if uploadService.phase != .idle {
+                VStack {
+                    Spacer()
+                    ReelUploadProgressPill(uploadService: uploadService)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 90)
+                }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .animation(.spring(response: 0.4), value: uploadService.phase.isActive)
+            }
         }
         .sheet(isPresented: $showUploadSheet) {
-            UploadReelView { await fetchReels() }
+            UploadReelView()
+                .environmentObject(uploadService)
         }
         .sheet(isPresented: $showUserReels) {
             if let user = selectedReelUser {
@@ -338,6 +352,9 @@ struct ReelsView: View {
             await fetchReels()
             await fetchUnreadCount()
         }
+        .onReceive(NotificationCenter.default.publisher(for: ReelUploadService.didFinishUploadNotification)) { _ in
+            Task { await fetchReels() }
+        }
         .onChange(of: feedScope) { _, _ in
             currentIndex = 0
         }
@@ -366,6 +383,7 @@ struct ReelsView: View {
     private func fetchReels() async {
         isLoading = reels.isEmpty
         errorMessage = nil
+        let currentUserId = auth.user?.id ?? ""
         do {
             struct ReelFeedItem: Codable {
                 let id: Int; let user_id: Int; let video_url: String?
@@ -384,13 +402,15 @@ struct ReelsView: View {
             }
             let path = feedScope == .local ? "/reels/feed?scope=local" : "/reels/feed"
             let response: ReelFeedResponse = try await APIService.shared.get(path: path)
-            let fetched = response.reels.map { r in
-                Reel(id: "\(r.id)", userId: "\(r.user_id)", userName: r.creator_name ?? "Unknown",
-                     userAge: r.creator_age ?? 0, userPhoto: r.creator_photo ?? "",
-                     videoUrl: r.video_url ?? "", caption: r.caption ?? "",
-                     likes: r.like_count ?? 0, isLiked: false,
-                     isVerified: r.creator_verified ?? false, location: r.creator_location ?? "")
-            }
+            let fetched = response.reels
+                .filter { "\($0.user_id)" != currentUserId }
+                .map { r in
+                    Reel(id: "\(r.id)", userId: "\(r.user_id)", userName: r.creator_name ?? "Unknown",
+                         userAge: r.creator_age ?? 0, userPhoto: r.creator_photo ?? "",
+                         videoUrl: r.video_url ?? "", caption: r.caption ?? "",
+                         likes: r.like_count ?? 0, isLiked: false,
+                         isVerified: r.creator_verified ?? false, location: r.creator_location ?? "")
+                }
             reels = fetched.isEmpty ? filteredDemos : fetched
         } catch {
             if reels.isEmpty {
@@ -876,112 +896,421 @@ extension Reel {
     ]
 }
 
+// MARK: - Upload Progress Pill
+struct ReelUploadProgressPill: View {
+    @ObservedObject var uploadService: ReelUploadService
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Thumbnail preview
+            if let thumb = uploadService.thumbnail {
+                Image(uiImage: thumb)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 40, height: 40)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            } else {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.white.opacity(0.15))
+                    .frame(width: 40, height: 40)
+                    .overlay {
+                        Image(systemName: "video.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(.white.opacity(0.5))
+                    }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(statusText)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(.white)
+
+                // Progress bar
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(Color.white.opacity(0.15))
+                            .frame(height: 4)
+                        Capsule()
+                            .fill(progressColor)
+                            .frame(width: geo.size.width * uploadService.phase.progress, height: 4)
+                            .animation(.easeInOut(duration: 0.3), value: uploadService.phase.progress)
+                    }
+                }
+                .frame(height: 4)
+            }
+
+            Spacer(minLength: 0)
+
+            // Status icon or dismiss button
+            statusIcon
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial)
+        .environment(\.colorScheme, .dark)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
+    }
+
+    private var statusText: String {
+        switch uploadService.phase {
+        case .idle: return ""
+        case .compressing(let p): return "Compressing \(Int(p * 100))%"
+        case .awaitingFilter: return "Pick a filter"
+        case .exportingFilter(let p): return "Applying filter \(Int(p * 100))%"
+        case .readyToPost: return "Ready to post"
+        case .uploading(let p): return "Uploading \(Int(p * 100))%"
+        case .done: return "Upload complete!"
+        case .failed: return "Upload failed"
+        }
+    }
+
+    private var progressColor: Color {
+        switch uploadService.phase {
+        case .done: return .green
+        case .failed: return .red
+        default: return AppColors.primary
+        }
+    }
+
+    @ViewBuilder
+    private var statusIcon: some View {
+        switch uploadService.phase {
+        case .done:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 22))
+                .foregroundColor(.green)
+        case .failed:
+            Button { uploadService.dismiss() } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 22))
+                    .foregroundColor(.red)
+            }
+        default:
+            ProgressView()
+                .tint(.white)
+                .scaleEffect(0.8)
+        }
+    }
+}
+
 // MARK: - UploadReelView
 struct UploadReelView: View {
     @Environment(\.dismiss) var dismiss
-    @State private var caption = ""
-    @State private var selectedVideo: URL? = nil
-    @State private var isUploading = false
-    @State private var errorMessage: String?
+    @EnvironmentObject var uploadService: ReelUploadService
+    @EnvironmentObject var auth: AuthManager
     @State private var selectedItem: PhotosPickerItem? = nil
-    @State private var videoThumbnail: UIImage? = nil
-    var onUpload: (() async -> Void)?
+    @State private var hasPickedVideo = false
+    @State private var caption = ""
+    @State private var filterThumbnails: [VideoFilter: UIImage] = [:]
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    PhotosPicker(selection: $selectedItem, matching: .videos) {
-                        VStack(spacing: 16) {
-                            RoundedRectangle(cornerRadius: 20).fill(Color(hex: "F8F9FA")).frame(height: 300)
-                                .overlay {
-                                    if let thumbnail = videoThumbnail {
-                                        Image(uiImage: thumbnail).resizable().scaledToFill()
-                                            .clipShape(RoundedRectangle(cornerRadius: 20))
-                                            .overlay(alignment: .center) {
-                                                Image(systemName: "checkmark.circle.fill").font(.system(size: 48)).foregroundColor(.white).shadow(radius: 4)
-                                            }
-                                    } else {
-                                        VStack(spacing: 12) {
-                                            Image(systemName: "video.badge.plus").font(.system(size: 48)).foregroundColor(AppColors.primary)
-                                            Text("Tap to select video").font(.headline).foregroundColor(AppColors.textSecondary)
-                                            Text("Max 30 seconds").font(.caption).foregroundColor(AppColors.textMuted)
-                                        }
-                                    }
-                                }
-                                .clipShape(RoundedRectangle(cornerRadius: 20))
-                        }
+            ZStack {
+                AppColors.darkBg.ignoresSafeArea()
+
+                if !hasPickedVideo {
+                    videoPickerView
+                } else {
+                    filterEditorView
+                }
+            }
+            .navigationTitle(hasPickedVideo ? "New Reel" : "Select Video")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbarBackground(AppColors.darkBg, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") {
+                        uploadService.dismiss()
+                        dismiss()
                     }
-                    .onChange(of: selectedItem) { _, item in
-                        Task {
-                            guard let item else { return }
-                            if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
-                                selectedVideo = movie.url
-                                generateThumbnail(from: movie.url)
+                    .foregroundColor(.white.opacity(0.8))
+                }
+                if hasPickedVideo {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        postButton
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Video Picker
+
+    private var videoPickerView: some View {
+        ScrollView {
+            VStack(spacing: 24) {
+                PhotosPicker(selection: $selectedItem, matching: .videos) {
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(AppColors.darkCard)
+                        .frame(height: 300)
+                        .overlay {
+                            VStack(spacing: 12) {
+                                Image(systemName: "video.badge.plus")
+                                    .font(.system(size: 48))
+                                    .foregroundColor(AppColors.purpleAccent)
+                                Text("Tap to select video")
+                                    .font(.headline)
+                                    .foregroundColor(.white.opacity(0.7))
+                                Text("Max 30 seconds")
+                                    .font(.caption)
+                                    .foregroundColor(.white.opacity(0.4))
                             }
                         }
-                    }
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Caption").font(.headline).foregroundColor(AppColors.textPrimary)
-                        TextField("Write a caption...", text: $caption, axis: .vertical)
-                            .textFieldStyle(.plain).padding()
-                            .background(Color(hex: "F8F9FA"))
-                            .clipShape(RoundedRectangle(cornerRadius: 14)).lineLimit(3...6)
-                    }
-
-                    if let error = errorMessage {
-                        Text(error).font(.caption).foregroundColor(AppColors.error)
-                    }
-
-                    Button { uploadReel() } label: {
-                        HStack {
-                            if isUploading { ProgressView().tint(.white) }
-                            Text(isUploading ? "Uploading..." : "Upload Reel").font(.headline)
-                        }
-                        .foregroundColor(.white).frame(maxWidth: .infinity).padding(.vertical, 16)
-                        .background(selectedVideo != nil ? AppColors.brandGradient : LinearGradient(colors: [.gray], startPoint: .leading, endPoint: .trailing))
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                    }
-                    .disabled(selectedVideo == nil || isUploading)
-                    .opacity(selectedVideo == nil ? 0.6 : 1)
+                        .clipShape(RoundedRectangle(cornerRadius: 20))
                 }
-                .padding(24)
+                .onChange(of: selectedItem) { _, item in
+                    Task {
+                        guard let item else { return }
+                        if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
+                            // Start pipeline immediately
+                            uploadService.prepare(localURL: movie.url)
+                            uploadService.applyFilter(.original)
+                            hasPickedVideo = true
+                        }
+                    }
+                }
             }
-            .navigationTitle("New Reel").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) { Button("Cancel") { dismiss() } }
+            .padding(24)
+        }
+    }
+
+    // MARK: - Filter Editor
+
+    private var filterEditorView: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(spacing: 16) {
+                    // Preview with phase badge
+                    previewWithBadge
+                        .padding(.top, 8)
+
+                    // Progress bar
+                    progressBar
+
+                    // Caption
+                    TextField("Write a caption...", text: $caption, axis: .vertical)
+                        .font(.system(size: 15))
+                        .foregroundColor(.white)
+                        .lineLimit(2...4)
+                        .padding(12)
+                        .background(AppColors.darkCard)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .tint(AppColors.purpleAccent)
+                }
+                .padding(.horizontal, 20)
+            }
+            .frame(maxHeight: .infinity)
+
+            Divider().overlay(AppColors.darkDivider)
+
+            // Filter carousel
+            filterCarousel
+                .frame(height: 110)
+                .padding(.bottom, 8)
+        }
+        .task {
+            await generateFilterThumbnails()
+        }
+    }
+
+    // MARK: - Preview with Phase Badge
+
+    private var previewWithBadge: some View {
+        ZStack(alignment: .topTrailing) {
+            Group {
+                if let thumb = uploadService.thumbnail {
+                    let filtered = uploadService.selectedFilter.applyToImage(thumb)
+                    Image(uiImage: filtered)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, maxHeight: 360)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                } else {
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(AppColors.darkCard)
+                        .frame(height: 260)
+                        .overlay {
+                            ProgressView().tint(.white)
+                        }
+                }
+            }
+
+            phaseBadge
+                .padding(12)
+        }
+    }
+
+    // MARK: - Phase Badge
+
+    private var phaseBadge: some View {
+        HStack(spacing: 6) {
+            switch uploadService.phase {
+            case .compressing(let p):
+                ProgressView()
+                    .scaleEffect(0.6)
+                    .tint(.white)
+                Text("Compressing \(Int(p * 100))%")
+            case .awaitingFilter:
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                Text("Ready")
+            case .exportingFilter(let p):
+                ProgressView()
+                    .scaleEffect(0.6)
+                    .tint(.white)
+                Text("Applying \(Int(p * 100))%")
+            case .readyToPost:
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                Text("Ready to post")
+            case .uploading(let p):
+                ProgressView()
+                    .scaleEffect(0.6)
+                    .tint(.white)
+                Text("Uploading \(Int(p * 100))%")
+            case .done:
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                Text("Done!")
+            case .failed(let msg):
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundColor(.red)
+                Text(msg).lineLimit(1)
+            default:
+                EmptyView()
+            }
+        }
+        .font(.system(size: 11, weight: .medium))
+        .foregroundColor(.white)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial)
+        .environment(\.colorScheme, .dark)
+        .clipShape(Capsule())
+    }
+
+    // MARK: - Progress Bar
+
+    private var progressBar: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(Color.white.opacity(0.1))
+                    .frame(height: 4)
+                Capsule()
+                    .fill(barColor)
+                    .frame(width: geo.size.width * uploadService.phase.progress, height: 4)
+                    .animation(.easeInOut(duration: 0.3), value: uploadService.phase.progress)
+            }
+        }
+        .frame(height: 4)
+        .opacity(uploadService.phase == .idle || uploadService.phase == .awaitingFilter || uploadService.phase == .readyToPost ? 0 : 1)
+    }
+
+    private var barColor: Color {
+        switch uploadService.phase {
+        case .done: return .green
+        case .failed: return .red
+        default: return AppColors.purpleAccent
+        }
+    }
+
+    // MARK: - Filter Carousel
+
+    private var filterCarousel: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(VideoFilter.allCases) { filter in
+                    filterSwatch(filter: filter)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+        }
+    }
+
+    private func filterSwatch(filter: VideoFilter) -> some View {
+        let isSelected = uploadService.selectedFilter == filter
+
+        return Button {
+            uploadService.applyFilter(filter)
+        } label: {
+            VStack(spacing: 6) {
+                Group {
+                    if let thumb = filterThumbnails[filter] {
+                        Image(uiImage: thumb)
+                            .resizable()
+                            .scaledToFill()
+                    } else if let thumb = uploadService.thumbnail {
+                        Image(uiImage: thumb)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(AppColors.darkCard)
+                    }
+                }
+                .frame(width: 64, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(isSelected ? AppColors.purpleAccent : Color.clear, lineWidth: 2)
+                )
+
+                Text(filter.displayName)
+                    .font(.system(size: 10, weight: isSelected ? .semibold : .regular))
+                    .foregroundColor(isSelected ? AppColors.purpleAccent : .white.opacity(0.7))
             }
         }
     }
 
-    private func generateThumbnail(from url: URL) {
-        let asset = AVURLAsset(url: url)
-        let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(width: 600, height: 600)
-        Task {
-            do {
-                let (cgImage, _) = try await generator.image(at: .zero)
-                videoThumbnail = UIImage(cgImage: cgImage)
-            } catch {}
+    // MARK: - Post Button
+
+    private var postButton: some View {
+        let isReady: Bool = {
+            switch uploadService.phase {
+            case .readyToPost, .done: return true
+            default: return false
+            }
+        }()
+
+        return Button {
+            uploadService.post(caption: caption, authToken: auth.token)
+            dismiss()
+        } label: {
+            Text("Post")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+                .background(isReady ? Color.green : AppColors.purpleAccent.opacity(0.4))
+                .clipShape(Capsule())
         }
+        .disabled(!isReady)
     }
 
-    private func uploadReel() {
-        guard let videoURL = selectedVideo else { errorMessage = "Please select a video first."; return }
-        isUploading = true; errorMessage = nil
-        Task {
-            do {
-                let videoData = try Data(contentsOf: videoURL)
-                struct UploadResponse: Codable { let reel_id: Int?; let message: String? }
-                let _: UploadResponse = try await APIService.shared.multipartUpload(
-                    path: "/reels", fileData: videoData, fileName: "reel.mp4", mimeType: "video/mp4", fileField: "video", fields: ["caption": caption])
-                await onUpload?()
-                dismiss()
-            } catch { errorMessage = "Upload failed: \(error.localizedDescription)" }
-            isUploading = false
+    // MARK: - Generate Filter Thumbnails
+
+    private func generateFilterThumbnails() async {
+        // Wait for thumbnail to be available
+        while uploadService.thumbnail == nil {
+            try? await Task.sleep(for: .milliseconds(100))
         }
+        guard let original = uploadService.thumbnail else { return }
+
+        await Task.detached(priority: .utility) {
+            var results: [VideoFilter: UIImage] = [:]
+            for filter in VideoFilter.allCases {
+                results[filter] = filter.applyToImage(original)
+            }
+            await MainActor.run {
+                filterThumbnails = results
+            }
+        }.value
     }
 }
 

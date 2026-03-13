@@ -348,9 +348,8 @@ struct EditProfileView: View {
                         name: $name, bio: $bio, gender: $gender, location: $location,
                         looking_for: $looking_for, interests: $interests, languages: $languages,
                         height_cm: $height_cm, profession_category: $profession_category,
-                        profession_title: $profession_title,
-                        university: $university, university_location: $university_location,
-                        study: $study
+                        profession_title: $profession_title, university: $university,
+                        university_location: $university_location, study: $study
                     )
                 }
                 """
@@ -359,8 +358,7 @@ struct EditProfileView: View {
                     "looking_for": lookingFor, "interests": Array(interests),
                     "languages": Array(languages), "height_cm": Int(height) as Any,
                     "profession_category": professionCategory, "profession_title": professionTitle,
-                    "university": university, "university_location": universityLocation,
-                    "study": study,
+                    "university": university, "university_location": universityLocation, "study": study,
                 ]
                 let _: [String: Any] = try await APIService.shared.graphQL(query: mutation, variables: variables)
                 await auth.refreshProfile()

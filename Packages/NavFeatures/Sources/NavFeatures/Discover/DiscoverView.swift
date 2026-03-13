@@ -17,6 +17,8 @@ struct DiscoverView: View {
     @State private var errorMessage: String?
     @State private var superLikeMessage: String?
     @State private var showSuperLikeFeedback = false
+    @State private var showMessageSheet = false
+    @State private var messageText = ""
 
     #if canImport(UIKit)
     private let screenWidth = UIScreen.main.bounds.width
@@ -192,40 +194,89 @@ struct DiscoverView: View {
                     .padding(.horizontal, AppSpacing.xxxl)
                     Spacer()
                 } else {
-                    // Card stack
-                    ZStack {
-                        ForEach(Array(profiles[currentIndex..<min(currentIndex + 2, profiles.count)].enumerated().reversed()), id: \.element.id) { idx, profile in
-                            let isFirst = idx == 0
-                            SwipeCard(profile: profile, isFirst: isFirst, offset: isFirst ? offset : .zero, showDetails: isFirst && showDetails)
-                                .scaleEffect(isFirst ? 1.0 : 0.95)
-                                .offset(y: isFirst ? 0 : 10)
-                                .gesture(isFirst ? dragGesture : nil)
-                                .onTapGesture {
-                                    if isFirst {
-                                        selectedProfile = profile
+                    // Card stack + action buttons
+                    ZStack(alignment: .bottom) {
+                        ZStack {
+                            ForEach(Array(profiles[currentIndex..<min(currentIndex + 2, profiles.count)].enumerated().reversed()), id: \.element.id) { idx, profile in
+                                let isFirst = idx == 0
+                                SwipeCard(profile: profile, isFirst: isFirst, offset: isFirst ? offset : .zero, showDetails: isFirst && showDetails)
+                                    .scaleEffect(isFirst ? 1.0 : 0.95)
+                                    .offset(y: isFirst ? 0 : 10)
+                                    .gesture(isFirst ? dragGesture : nil)
+                                    .onTapGesture {
+                                        if isFirst {
+                                            selectedProfile = profile
+                                        }
                                     }
-                                }
+                            }
                         }
-                    }
-                    .padding(.horizontal, AppSpacing.lg)
 
-                    // Action Buttons
-                    if let profile = profiles[safe: currentIndex] {
-                        HStack(spacing: AppSpacing.md) {
-                            ActionCircleButton(icon: "arrow.uturn.backward", size: 44, color: Color(hex: "D4A5C9")) {}
-                            ActionCircleButton(icon: "xmark", size: 60, color: Color(hex: "B0B0B0"), borderColor: Color(hex: "B0B0B0")) {
-                                swipeLeft()
+                        // Action Buttons overlaid at bottom of card
+                        HStack(spacing: 16) {
+                            // Pass
+                            Button { swipeLeft() } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 22, weight: .bold))
+                                    .foregroundStyle(Color(hex: "FF6B6B"))
+                                    .frame(width: 54, height: 54)
+                                    .background(
+                                        Circle()
+                                            .fill(Color(hex: "FF6B6B").opacity(0.12))
+                                    )
+                                    .overlay(
+                                        Circle().stroke(Color(hex: "FF6B6B").opacity(0.35), lineWidth: 2)
+                                    )
                             }
-                            ActionCircleButton(icon: "star.fill", size: 52, color: AppColors.superLike, borderColor: AppColors.superLike) {
-                                swipeUp()
+
+                            // Super Like
+                            Button { swipeUp() } label: {
+                                Image(systemName: "star.fill")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundStyle(AppColors.superLike)
+                                    .frame(width: 46, height: 46)
+                                    .background(
+                                        Circle()
+                                            .fill(AppColors.superLike.opacity(0.12))
+                                    )
+                                    .overlay(
+                                        Circle().stroke(AppColors.superLike.opacity(0.35), lineWidth: 2)
+                                    )
                             }
-                            ActionCircleButton(icon: "heart.fill", size: 60, color: Color(hex: "98D4BB"), borderColor: Color(hex: "98D4BB")) {
-                                swipeRight()
+
+                            // Message Request
+                            Button { showMessageSheet = true } label: {
+                                Image(systemName: "bubble.right.fill")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundStyle(AppColors.purpleAccent)
+                                    .frame(width: 46, height: 46)
+                                    .background(
+                                        Circle()
+                                            .fill(AppColors.purpleAccent.opacity(0.12))
+                                    )
+                                    .overlay(
+                                        Circle().stroke(AppColors.purpleAccent.opacity(0.35), lineWidth: 2)
+                                    )
                             }
-                            ActionCircleButton(icon: "bolt.fill", size: 44, color: Color(hex: "D4C5A0")) {}
+
+                            // Like
+                            Button { swipeRight() } label: {
+                                Image(systemName: "heart.fill")
+                                    .font(.system(size: 22, weight: .bold))
+                                    .foregroundStyle(Color(hex: "4ECDC4"))
+                                    .frame(width: 54, height: 54)
+                                    .background(
+                                        Circle()
+                                            .fill(Color(hex: "4ECDC4").opacity(0.12))
+                                    )
+                                    .overlay(
+                                        Circle().stroke(Color(hex: "4ECDC4").opacity(0.35), lineWidth: 2)
+                                    )
+                            }
                         }
-                        .padding(.vertical, AppSpacing.xl)
+                        .padding(.bottom, 18)
                     }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
                 }
             }
         }
@@ -239,7 +290,8 @@ struct DiscoverView: View {
             MatchProfileDetailView(
                 userId: profile.id,
                 matchName: profile.name ?? "Unknown",
-                matchPhoto: profile.primaryPhoto ?? ""
+                matchPhoto: profile.primaryPhoto ?? "",
+                initialProfile: profile
             )
         }
         .overlay(alignment: .top) {
@@ -256,6 +308,9 @@ struct DiscoverView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: showSuperLikeFeedback)
+        .sheet(isPresented: $showMessageSheet) {
+            messageRequestSheet
+        }
     }
 
     private var dragGesture: some Gesture {
@@ -374,6 +429,212 @@ struct DiscoverView: View {
         }
     }
 
+    // MARK: - Message Request Sheet
+
+    private var messageRequestSheet: some View {
+        let currentProfile = profiles[safe: currentIndex]
+        return NavigationStack {
+            ZStack {
+                AppColors.darkBg.ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                    // Profile preview
+                    if let profile = currentProfile {
+                        HStack(spacing: 14) {
+                            AsyncImage(url: AppConfig.resolvePhotoURL(profile.primaryPhoto)) { phase in
+                                switch phase {
+                                case .success(let image):
+                                    image.resizable().scaledToFill()
+                                case .failure, .empty:
+                                    Rectangle().fill(AppColors.darkCard)
+                                        .overlay {
+                                            Image(systemName: "person.fill")
+                                                .foregroundStyle(.white.opacity(0.3))
+                                        }
+                                @unknown default:
+                                    Rectangle().fill(AppColors.darkCard)
+                                }
+                            }
+                            .frame(width: 56, height: 56)
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                HStack(spacing: 6) {
+                                    Text(profile.name ?? "")
+                                        .font(.system(size: 18, weight: .bold))
+                                        .foregroundStyle(.white)
+                                    if let age = profile.age {
+                                        Text("\(age)")
+                                            .font(.system(size: 16, weight: .light))
+                                            .foregroundStyle(.white.opacity(0.7))
+                                    }
+                                    if profile.isVerified {
+                                        Image(systemName: "checkmark.seal.fill")
+                                            .font(.system(size: 14))
+                                            .foregroundStyle(AppColors.verified)
+                                    }
+                                }
+                                if let location = profile.location {
+                                    Text(location)
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(.white.opacity(0.5))
+                                }
+                            }
+                            Spacer()
+                        }
+                        .padding(.horizontal, 20)
+                        .padding(.top, 16)
+                    }
+
+                    Divider()
+                        .background(.white.opacity(0.1))
+                        .padding(.vertical, 16)
+
+                    // Prompt
+                    Text("Send a message with your like")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .padding(.horizontal, 20)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    // Text input
+                    ZStack(alignment: .topLeading) {
+                        if messageText.isEmpty {
+                            Text("Say something that stands out...")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.white.opacity(0.3))
+                                .padding(.horizontal, 18)
+                                .padding(.vertical, 14)
+                        }
+                        TextEditor(text: $messageText)
+                            .font(.system(size: 16))
+                            .foregroundStyle(.white)
+                            .scrollContentBackground(.hidden)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                    }
+                    .frame(minHeight: 120, maxHeight: 180)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(AppColors.darkCard)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 16)
+                                    .stroke(AppColors.purpleAccent.opacity(messageText.isEmpty ? 0.15 : 0.4), lineWidth: 1)
+                            )
+                    )
+                    .padding(.horizontal, 20)
+                    .padding(.top, 10)
+
+                    // Character count
+                    HStack {
+                        Spacer()
+                        Text("\(messageText.count)/300")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.35))
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.top, 4)
+
+                    Spacer()
+
+                    // Send button
+                    Button {
+                        sendMessageRequest()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "heart.fill")
+                                .font(.system(size: 16))
+                            Text("Like with Message")
+                                .font(.system(size: 17, weight: .bold))
+                        }
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(
+                            messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            ? AppColors.purpleAccent.opacity(0.4)
+                            : AppColors.purpleAccent
+                        )
+                        .clipShape(RoundedRectangle(cornerRadius: 14))
+                    }
+                    .disabled(messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Message Request")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button {
+                        showMessageSheet = false
+                        messageText = ""
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.6))
+                            .frame(width: 30, height: 30)
+                            .background(.white.opacity(0.08))
+                            .clipShape(Circle())
+                    }
+                }
+            }
+            .toolbarBackground(AppColors.darkBg, for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
+        }
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
+        .presentationBackground(AppColors.darkBg)
+    }
+
+    private func sendMessageRequest() {
+        guard let profile = profiles[safe: currentIndex] else { return }
+        let message = messageText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty else { return }
+
+        showMessageSheet = false
+        messageText = ""
+
+        // Animate the card out as a like
+        withAnimation(.spring(response: 0.3)) {
+            offset = CGSize(width: screenWidth + 100, height: 0)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            currentIndex += 1
+            offset = .zero
+        }
+
+        // Send like + message to backend
+        guard !profile.id.hasPrefix("demo-") else { return }
+        Task {
+            do {
+                struct MessageRequestResponse: Decodable {
+                    let success: Bool?
+                    let matchId: String?
+                    let isMutual: Bool?
+                    enum CodingKeys: String, CodingKey {
+                        case success
+                        case matchId = "match_id"
+                        case isMutual = "is_mutual"
+                    }
+                }
+                let _: MessageRequestResponse = try await APIService.shared.post(
+                    path: "/match/like",
+                    body: [
+                        "target_user_id": Int(profile.id) ?? 0,
+                        "message": message
+                    ]
+                )
+            } catch {
+                NavLog.warning("Message request failed for \(profile.id): \(error.localizedDescription)", category: .network)
+            }
+        }
+    }
+
     private func fetchProfiles() {
         isLoading = true
         errorMessage = nil
@@ -456,30 +717,41 @@ struct SwipeCard: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        GeometryReader { geo in
             ZStack(alignment: .bottom) {
-                // Photo
+                // Full-bleed photo
                 if let url = AppConfig.resolvePhotoURL(profile.primaryPhoto) {
-                    AsyncImage(url: url) { image in
-                        image.resizable().scaledToFill()
-                    } placeholder: {
-                        Rectangle().fill(Color(.systemGray5))
-                            .overlay { ProgressView() }
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let image):
+                            image.resizable().scaledToFill()
+                                .frame(width: geo.size.width, height: geo.size.height)
+                                .clipped()
+                        case .failure:
+                            photoPlaceholder(width: geo.size.width, height: geo.size.height)
+                        case .empty:
+                            photoPlaceholder(width: geo.size.width, height: geo.size.height)
+                                .overlay {
+                                    ProgressView()
+                                        .tint(.white.opacity(0.6))
+                                        .scaleEffect(1.2)
+                                }
+                        @unknown default:
+                            photoPlaceholder(width: geo.size.width, height: geo.size.height)
+                        }
                     }
                 } else {
-                    Rectangle()
-                        .fill(Color(.systemGray4))
-                        .overlay {
-                            Image(systemName: "person.fill")
-                                .font(.system(size: 60))
-                                .foregroundStyle(.white.opacity(0.5))
-                        }
+                    photoPlaceholder(width: geo.size.width, height: geo.size.height)
                 }
 
-                // Gradient overlay
+                // Bottom gradient — taller for readability
                 LinearGradient(
-                    colors: [.clear, .black.opacity(0.7)],
-                    startPoint: .center,
+                    stops: [
+                        .init(color: .clear, location: 0.35),
+                        .init(color: .black.opacity(0.3), location: 0.55),
+                        .init(color: .black.opacity(0.85), location: 1.0)
+                    ],
+                    startPoint: .top,
                     endPoint: .bottom
                 )
 
@@ -487,13 +759,13 @@ struct SwipeCard: View {
                 if isFirst {
                     if offset.width > 40 {
                         Text("LIKE")
-                            .font(.system(size: 32, weight: .heavy))
-                            .foregroundStyle(AppColors.like)
+                            .font(.system(size: 36, weight: .heavy))
+                            .foregroundStyle(Color(hex: "4ECDC4"))
                             .padding(.horizontal, 16)
                             .padding(.vertical, 8)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .strokeBorder(AppColors.like, lineWidth: 4)
+                                    .strokeBorder(Color(hex: "4ECDC4"), lineWidth: 4)
                             )
                             .rotationEffect(.degrees(15))
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
@@ -502,16 +774,18 @@ struct SwipeCard: View {
                     }
                     if offset.width < -40 {
                         Text("NOPE")
-                            .font(.system(size: 32, weight: .heavy))
-                            .foregroundStyle(AppColors.error)
+                            .font(.system(size: 36, weight: .heavy))
+                            .foregroundStyle(Color(hex: "FF6B6B"))
                             .padding(.horizontal, 16)
                             .padding(.vertical, 8)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 8)
-                                    .strokeBorder(AppColors.error, lineWidth: 4)
+                                    .strokeBorder(Color(hex: "FF6B6B"), lineWidth: 4)
                             )
                             .rotationEffect(.degrees(-15))
-                            .position(x: 80, y: 80)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                            .padding(.leading, 30)
+                            .padding(.top, 50)
                     }
                     if offset.height < -40 && abs(offset.height) > abs(offset.width) {
                         VStack(spacing: 4) {
@@ -531,71 +805,63 @@ struct SwipeCard: View {
                     }
                 }
 
-                // Top badges
+                // Top-right badges
                 VStack(alignment: .trailing, spacing: 8) {
-                    if profile.hasReels {
-                        HStack(spacing: 4) {
-                            Image(systemName: "video.fill")
-                                .font(.system(size: 12))
-                            Text("Reels")
-                                .font(.system(size: 12, weight: .semibold))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(.black.opacity(0.6))
-                        .clipShape(Capsule())
-                    }
-                    if let score = profile.compatibilityScore {
-                        HStack(spacing: 4) {
+                    if let score = profile.compatibilityScore, score > 0 {
+                        HStack(spacing: 5) {
                             Image(systemName: "sparkles")
-                                .font(.system(size: 12))
-                                .foregroundStyle(Color(hex: "D4C5A0"))
-                            Text("\(score)% Match")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Color(hex: "D4C5A0"))
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("\(score)%")
+                                .font(.system(size: 13, weight: .bold, design: .rounded))
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(.black.opacity(0.6))
+                        .foregroundStyle(AppColors.gold)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial.opacity(0.8))
                         .clipShape(Capsule())
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                .padding(.trailing, AppSpacing.md)
-                .padding(.top, AppSpacing.xxl)
+                .padding(.trailing, 14)
+                .padding(.top, 14)
 
-                // Profile info
-                VStack(alignment: .leading, spacing: 4) {
+                // Profile info at bottom
+                VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 8) {
                         Text(profile.name ?? "")
-                            .font(.system(size: 28, weight: .bold))
+                            .font(.system(size: 30, weight: .bold))
                             .foregroundStyle(.white)
 
                         if let age = profile.age {
                             Text("\(age)")
-                                .font(.system(size: 26))
-                                .foregroundStyle(.white)
+                                .font(.system(size: 28, weight: .light))
+                                .foregroundStyle(.white.opacity(0.85))
                         }
 
                         if profile.isVerified {
-                            Image(systemName: "checkmark.circle.fill")
+                            Image(systemName: "checkmark.seal.fill")
                                 .foregroundStyle(AppColors.verified)
-                                .font(.system(size: 22))
+                                .font(.system(size: 20))
                         }
                     }
 
-                    HStack(spacing: 4) {
-                        Image(systemName: "location")
-                            .font(.system(size: 14))
-                        Text(profile.location ?? "")
-                            .font(.system(size: 15))
-                        if let prof = profile.profession {
-                            Text("  \(prof)")
+                    if let location = profile.location, !location.isEmpty {
+                        HStack(spacing: 5) {
+                            Image(systemName: "mappin.circle.fill")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.white.opacity(0.6))
+                            Text(location)
                                 .font(.system(size: 15))
+                                .foregroundStyle(.white.opacity(0.8))
+                            if let prof = profile.profession, !prof.isEmpty {
+                                Text("·")
+                                    .foregroundStyle(.white.opacity(0.4))
+                                Text(prof)
+                                    .font(.system(size: 15))
+                                    .foregroundStyle(.white.opacity(0.8))
+                            }
                         }
                     }
-                    .foregroundStyle(.white.opacity(0.9))
 
                     if let languages = profile.languages, !languages.isEmpty {
                         HStack(spacing: 4) {
@@ -604,84 +870,71 @@ struct SwipeCard: View {
                             Text(languages.joined(separator: ", "))
                                 .font(.system(size: 13))
                         }
-                        .foregroundStyle(.white.opacity(0.7))
+                        .foregroundStyle(.white.opacity(0.55))
+                    }
+
+                    // Interests preview (first 3)
+                    if let interests = profile.interests, !interests.isEmpty {
+                        HStack(spacing: 6) {
+                            ForEach(interests.prefix(3), id: \.self) { tag in
+                                Text(tag)
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.9))
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 5)
+                                    .background(.white.opacity(0.12))
+                                    .clipShape(Capsule())
+                            }
+                            if interests.count > 3 {
+                                Text("+\(interests.count - 3)")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.5))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 5)
+                                    .background(.white.opacity(0.08))
+                                    .clipShape(Capsule())
+                            }
+                        }
+                        .padding(.top, 4)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(AppSpacing.lg)
-            }
-            .clipped()
-
-            // Expanded details
-            if showDetails {
-                VStack(alignment: .leading, spacing: AppSpacing.lg) {
-                    if let bio = profile.bio {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("About")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.4))
-                                .textCase(.uppercase)
-                            Text(bio)
-                                .font(.system(size: 16))
-                                .foregroundColor(.white.opacity(0.85))
-                                .lineSpacing(4)
-                        }
-                    }
-                    if let interests = profile.interests, !interests.isEmpty {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Interests")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(.white.opacity(0.4))
-                                .textCase(.uppercase)
-                            FlowLayout(spacing: 8) {
-                                ForEach(interests, id: \.self) { interest in
-                                    Text(interest)
-                                        .font(.system(size: 14, weight: .medium))
-                                        .foregroundStyle(Color(hex: "C9A0DC"))
-                                        .padding(.horizontal, AppSpacing.md)
-                                        .padding(.vertical, AppSpacing.sm)
-                                        .background(Color(hex: "C9A0DC").opacity(0.12))
-                                        .clipShape(Capsule())
-                                }
-                            }
-                        }
-                    }
-                }
-                .padding(AppSpacing.lg)
-                .frame(maxHeight: 200)
-                .background(Color(hex: "1A1B2E"))
+                .padding(.horizontal, 18)
+                .padding(.bottom, 90) // room for action buttons
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.xl))
-        .shadow(color: .black.opacity(0.12), radius: 16, y: 8)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(.white.opacity(0.06), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.2), radius: 20, y: 10)
         .offset(x: isFirst ? offset.width : 0, y: isFirst ? offset.height : 0)
         .rotationEffect(.degrees(isFirst ? rotation : 0))
     }
-}
 
-// MARK: - Action Circle Button
-struct ActionCircleButton: View {
-    let icon: String
-    let size: CGFloat
-    let color: Color
-    var borderColor: Color? = nil
-    let action: () -> Void
+    private func photoPlaceholder(width: CGFloat, height: CGFloat) -> some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color(hex: "2A1F3D"), Color(hex: "1C1B2E"), Color(hex: "2D1B4E")],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .frame(width: width, height: height)
 
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: size * 0.35))
-                .foregroundStyle(color)
-                .frame(width: size, height: size)
-                .background(.white.opacity(0.1))
-                .clipShape(Circle())
-                .overlay {
-                    if let border = borderColor {
-                        Circle().strokeBorder(border.opacity(0.5), lineWidth: 2)
-                    } else {
-                        Circle().stroke(.white.opacity(0.1), lineWidth: 1)
-                    }
+            VStack(spacing: 16) {
+                ZStack {
+                    Circle()
+                        .fill(.white.opacity(0.04))
+                        .frame(width: 100, height: 100)
+                    Image(systemName: "person.crop.circle")
+                        .font(.system(size: 52, weight: .thin))
+                        .foregroundStyle(.white.opacity(0.2))
                 }
+                Text(profile.name ?? "")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.3))
+            }
         }
     }
 }
