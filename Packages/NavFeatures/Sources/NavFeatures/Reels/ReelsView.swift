@@ -764,134 +764,214 @@ struct ReelCard: View {
 extension Reel {
     static let demos: [Reel] = [
         Reel(
-            id: "demo-reel-1",
-            userId: "demo-1",
-            userName: "Priya",
-            userAge: 26,
+            id: "demo-reel-1", userId: "demo-1", userName: "Priya", userAge: 26,
             userPhoto: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400",
             videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
             caption: "Weekend vibes in the city! 🌇 #travel #adventure",
-            likes: 342,
-            isLiked: false,
-            isVerified: true,
-            location: "Hyderabad"
+            likes: 342, isLiked: false, isVerified: true, location: "Hyderabad"
         ),
         Reel(
-            id: "demo-reel-2",
-            userId: "demo-2",
-            userName: "Arjun",
-            userAge: 29,
+            id: "demo-reel-2", userId: "demo-2", userName: "Arjun", userAge: 29,
             userPhoto: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400",
             videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
             caption: "Morning trail run with the best view 🏃‍♂️⛰️",
-            likes: 518,
-            isLiked: false,
-            isVerified: true,
-            location: "Bangalore"
+            likes: 518, isLiked: false, isVerified: true, location: "Bangalore"
         ),
         Reel(
-            id: "demo-reel-3",
-            userId: "demo-3",
-            userName: "Meera",
-            userAge: 27,
+            id: "demo-reel-3", userId: "demo-3", userName: "Meera", userAge: 27,
             userPhoto: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=400",
             videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
             caption: "Cooking something special tonight 🍳✨",
-            likes: 276,
-            isLiked: false,
-            isVerified: false,
-            location: "Chennai"
+            likes: 276, isLiked: false, isVerified: false, location: "Chennai"
         ),
         Reel(
-            id: "demo-reel-4",
-            userId: "demo-4",
-            userName: "Sneha",
-            userAge: 25,
+            id: "demo-reel-4", userId: "demo-4", userName: "Sneha", userAge: 25,
             userPhoto: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400",
             videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
             caption: "Life is better with music 🎵 #singer #life",
-            likes: 891,
-            isLiked: false,
-            isVerified: true,
-            location: "Mumbai"
+            likes: 891, isLiked: false, isVerified: true, location: "Mumbai"
         ),
         Reel(
-            id: "demo-reel-5",
-            userId: "demo-5",
-            userName: "Kavya",
-            userAge: 24,
+            id: "demo-reel-5", userId: "demo-5", userName: "Kavya", userAge: 24,
             userPhoto: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=400",
             videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
             caption: "Sunset chasing is my cardio 🌅✨ #golden #wanderlust",
-            likes: 1203,
-            isLiked: false,
-            isVerified: true,
-            location: "Goa"
+            likes: 1203, isLiked: false, isVerified: true, location: "Goa"
         ),
         Reel(
-            id: "demo-reel-6",
-            userId: "demo-6",
-            userName: "Rohan",
-            userAge: 28,
+            id: "demo-reel-6", userId: "demo-6", userName: "Rohan", userAge: 28,
             userPhoto: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400",
             videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
             caption: "Late night coding session turned into art 🎨💻 #developer #creative",
-            likes: 467,
-            isLiked: false,
-            isVerified: false,
-            location: "Pune"
+            likes: 467, isLiked: false, isVerified: false, location: "Pune"
         ),
         Reel(
-            id: "demo-reel-7",
-            userId: "demo-7",
-            userName: "Ananya",
-            userAge: 23,
+            id: "demo-reel-7", userId: "demo-7", userName: "Ananya", userAge: 23,
             userPhoto: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400",
             videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
             caption: "Road trip diaries 🚗💨 who's coming next time?",
-            likes: 729,
-            isLiked: false,
-            isVerified: true,
-            location: "Delhi"
+            likes: 729, isLiked: false, isVerified: true, location: "Delhi"
         ),
         Reel(
-            id: "demo-reel-8",
-            userId: "demo-8",
-            userName: "Vikram",
-            userAge: 30,
+            id: "demo-reel-8", userId: "demo-8", userName: "Vikram", userAge: 30,
             userPhoto: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400",
             videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
             caption: "When the gym hits different at 5 AM 💪🔥 #fitness #grind",
-            likes: 1547,
-            isLiked: false,
-            isVerified: true,
-            location: "Hyderabad"
+            likes: 1547, isLiked: false, isVerified: true, location: "Hyderabad"
         ),
         Reel(
-            id: "demo-reel-9",
-            userId: "demo-9",
-            userName: "Diya",
-            userAge: 26,
+            id: "demo-reel-9", userId: "demo-9", userName: "Diya", userAge: 26,
             userPhoto: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400",
             videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4",
             caption: "Coffee + books = perfect Sunday ☕📖 #cozy #bookworm",
-            likes: 385,
-            isLiked: false,
-            isVerified: false,
-            location: "Kolkata"
+            likes: 385, isLiked: false, isVerified: false, location: "Kolkata"
         ),
         Reel(
-            id: "demo-reel-10",
-            userId: "demo-10",
-            userName: "Aditya",
-            userAge: 27,
+            id: "demo-reel-10", userId: "demo-10", userName: "Aditya", userAge: 27,
             userPhoto: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400",
             videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4",
             caption: "Beach bonfire with the squad 🏖️🔥 #friends #goodtimes",
-            likes: 2103,
-            isLiked: false,
-            isVerified: true,
-            location: "Vizag"
+            likes: 2103, isLiked: false, isVerified: true, location: "Vizag"
+        ),
+        Reel(
+            id: "demo-reel-11", userId: "demo-11", userName: "Ishita", userAge: 24,
+            userPhoto: "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+            caption: "Dancing in the rain because why not 💃🌧️ #spontaneous",
+            likes: 1892, isLiked: false, isVerified: true, location: "Mumbai"
+        ),
+        Reel(
+            id: "demo-reel-12", userId: "demo-12", userName: "Karthik", userAge: 26,
+            userPhoto: "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+            caption: "Street photography at golden hour 📸 the city never sleeps",
+            likes: 634, isLiked: false, isVerified: true, location: "Bangalore"
+        ),
+        Reel(
+            id: "demo-reel-13", userId: "demo-13", userName: "Riya", userAge: 22,
+            userPhoto: "https://images.unsplash.com/photo-1502823403499-6ccfcf4fb453?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
+            caption: "First day at the new studio! 🎨 #art #newbeginnings",
+            likes: 445, isLiked: false, isVerified: false, location: "Jaipur"
+        ),
+        Reel(
+            id: "demo-reel-14", userId: "demo-14", userName: "Sahil", userAge: 28,
+            userPhoto: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+            caption: "Surfing lesson gone wrong... or right? 🏄‍♂️😂 #beachlife",
+            likes: 2340, isLiked: false, isVerified: true, location: "Goa"
+        ),
+        Reel(
+            id: "demo-reel-15", userId: "demo-15", userName: "Tara", userAge: 25,
+            userPhoto: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+            caption: "Trying every cafe in the city, one latte at a time ☕🗺️",
+            likes: 567, isLiked: false, isVerified: true, location: "Delhi"
+        ),
+        Reel(
+            id: "demo-reel-16", userId: "demo-16", userName: "Nikhil", userAge: 27,
+            userPhoto: "https://images.unsplash.com/photo-1521119989659-a83eee488004?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
+            caption: "Motorcycle ride through the Western Ghats 🏍️🌿 #ride #freedom",
+            likes: 1456, isLiked: false, isVerified: false, location: "Pune"
+        ),
+        Reel(
+            id: "demo-reel-17", userId: "demo-17", userName: "Sanya", userAge: 23,
+            userPhoto: "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
+            caption: "Yoga at sunrise hits different 🧘‍♀️🌅 #mindfulness #peace",
+            likes: 987, isLiked: false, isVerified: true, location: "Rishikesh"
+        ),
+        Reel(
+            id: "demo-reel-18", userId: "demo-18", userName: "Dev", userAge: 31,
+            userPhoto: "https://images.unsplash.com/photo-1480455624313-e29b44bbafae?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+            caption: "Finished building my first guitar from scratch 🎸🔨 #diy",
+            likes: 3201, isLiked: false, isVerified: true, location: "Chennai"
+        ),
+        Reel(
+            id: "demo-reel-19", userId: "demo-19", userName: "Nisha", userAge: 26,
+            userPhoto: "https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
+            caption: "Backpacking across Meghalaya 🎒🌊 #northeast #explore",
+            likes: 1678, isLiked: false, isVerified: true, location: "Shillong"
+        ),
+        Reel(
+            id: "demo-reel-20", userId: "demo-20", userName: "Raj", userAge: 29,
+            userPhoto: "https://images.unsplash.com/photo-1504257432389-52343af06ae3?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+            caption: "Night market food tour — my stomach is happy 🍜🔥",
+            likes: 812, isLiked: false, isVerified: false, location: "Hyderabad"
+        ),
+        Reel(
+            id: "demo-reel-21", userId: "demo-21", userName: "Pooja", userAge: 24,
+            userPhoto: "https://images.unsplash.com/photo-1514315384763-ba401779410f?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4",
+            caption: "Learning pottery and it's so therapeutic 🏺✨ #handmade",
+            likes: 543, isLiked: false, isVerified: true, location: "Udaipur"
+        ),
+        Reel(
+            id: "demo-reel-22", userId: "demo-22", userName: "Varun", userAge: 27,
+            userPhoto: "https://images.unsplash.com/photo-1463453091185-61582044d556?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4",
+            caption: "Paragliding over Bir Billing — absolutely unreal 🪂☁️",
+            likes: 4521, isLiked: false, isVerified: true, location: "Dharamshala"
+        ),
+        Reel(
+            id: "demo-reel-23", userId: "demo-23", userName: "Aisha", userAge: 25,
+            userPhoto: "https://images.unsplash.com/photo-1496440737103-cd596325d314?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+            caption: "My plant babies are thriving 🌱🪴 #plantmom #green",
+            likes: 321, isLiked: false, isVerified: false, location: "Kolkata"
+        ),
+        Reel(
+            id: "demo-reel-24", userId: "demo-24", userName: "Manish", userAge: 30,
+            userPhoto: "https://images.unsplash.com/photo-1506277886164-e25aa3f4ef7f?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+            caption: "Basketball pickup game at midnight 🏀🌙 #hoops #nightowl",
+            likes: 1102, isLiked: false, isVerified: true, location: "Bangalore"
+        ),
+        Reel(
+            id: "demo-reel-25", userId: "demo-25", userName: "Shreya", userAge: 22,
+            userPhoto: "https://images.unsplash.com/photo-1524638431109-93d95c968f03?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
+            caption: "Diwali prep starts early in our house 🪔🎆 #festival #family",
+            likes: 2876, isLiked: false, isVerified: true, location: "Vizag"
+        ),
+        Reel(
+            id: "demo-reel-26", userId: "demo-26", userName: "Harsh", userAge: 28,
+            userPhoto: "https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+            caption: "Trekking Hampta Pass was the hardest thing I've ever done 🏔️ #trek",
+            likes: 1934, isLiked: false, isVerified: false, location: "Manali"
+        ),
+        Reel(
+            id: "demo-reel-27", userId: "demo-27", userName: "Lakshmi", userAge: 26,
+            userPhoto: "https://images.unsplash.com/photo-1499952127939-9bbf5af6c51c?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+            caption: "Classical dance practice — Bharatanatyam never gets old 💃🎶",
+            likes: 2210, isLiked: false, isVerified: true, location: "Chennai"
+        ),
+        Reel(
+            id: "demo-reel-28", userId: "demo-28", userName: "Kabir", userAge: 25,
+            userPhoto: "https://images.unsplash.com/photo-1507591064344-4c6ce005b128?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
+            caption: "Skateboarding through empty streets at dawn 🛹🌤️ #skate",
+            likes: 756, isLiked: false, isVerified: true, location: "Mumbai"
+        ),
+        Reel(
+            id: "demo-reel-29", userId: "demo-29", userName: "Tanvi", userAge: 23,
+            userPhoto: "https://images.unsplash.com/photo-1485893086445-ed75865251e0?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
+            caption: "Adopted this little furball today 🐶❤️ say hi to Mochi!",
+            likes: 5432, isLiked: false, isVerified: true, location: "Pune"
+        ),
+        Reel(
+            id: "demo-reel-30", userId: "demo-30", userName: "Aman", userAge: 29,
+            userPhoto: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400",
+            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+            caption: "Stargazing in Spiti Valley — zero light pollution 🌌✨ #astro",
+            likes: 3890, isLiked: false, isVerified: true, location: "Spiti"
         ),
     ]
 }
