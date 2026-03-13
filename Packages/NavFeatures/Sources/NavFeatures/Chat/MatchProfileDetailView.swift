@@ -16,6 +16,8 @@ struct MatchProfileDetailView: View {
     @State private var profile: DiscoverProfile?
     @State private var reels: [Reel] = []
     @State private var isLoading = true
+    @State private var showReelFeed = false
+    @State private var tappedReelIndex = 0
 
     private var photos: [String] {
         let p = profile?.photos ?? [matchPhoto]
@@ -61,6 +63,13 @@ struct MatchProfileDetailView: View {
                 await fetchProfile()
             }
             await fetchReels()
+        }
+        .fullScreenCover(isPresented: $showReelFeed) {
+            ProfileReelFeedView(
+                initialReels: reels,
+                startIndex: tappedReelIndex,
+                userName: profile?.name ?? matchName
+            )
         }
     }
 
@@ -340,8 +349,14 @@ struct MatchProfileDetailView: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    ForEach(reels) { reel in
-                        ReelThumbnailCard(reel: reel)
+                    ForEach(Array(reels.enumerated()), id: \.element.id) { index, reel in
+                        Button {
+                            tappedReelIndex = index
+                            showReelFeed = true
+                        } label: {
+                            ReelThumbnailCard(reel: reel)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -402,6 +417,8 @@ struct MatchProfileDetailView: View {
     }
 
     private func fetchReels() async {
+        // Fetch user-specific reels first
+        var userReels: [Reel] = []
         do {
             struct ReelItem: Codable {
                 let id: Int; let video_url: String?; let caption: String?
@@ -413,7 +430,7 @@ struct MatchProfileDetailView: View {
             let response: ReelResponse = try await APIService.shared.get(
                 path: "/reels/user/\(userId)"
             )
-            reels = response.reels.map { r in
+            userReels = response.reels.map { r in
                 Reel(
                     id: "\(r.id)", userId: userId,
                     userName: profile?.name ?? matchName,
@@ -427,8 +444,44 @@ struct MatchProfileDetailView: View {
                 )
             }
         } catch {
-            // No reels — that's fine
+            // For demo users, filter demo reels by userId
+            userReels = Reel.demos.filter { $0.userId == userId }
         }
+
+        // Fetch global feed reels
+        var feedReels: [Reel] = []
+        do {
+            struct ReelFeedItem: Codable {
+                let id: Int; let user_id: Int; let video_url: String?
+                let thumbnail_url: String?; let duration_sec: Int?
+                let caption: String?; let category: String?
+                let like_count: Int?; let view_count: Int?
+                let engagement_score: Double?
+                let creator_name: String?; let creator_age: Int?
+                let creator_photo: String?; let creator_verified: Bool?
+                let creator_location: String?
+            }
+            struct ReelFeedResponse: Codable {
+                let reels: [ReelFeedItem]
+                let session_id: String?
+                let count: Int?
+            }
+            let response: ReelFeedResponse = try await APIService.shared.get(path: "/reels/feed")
+            feedReels = response.reels.map { r in
+                Reel(id: "\(r.id)", userId: "\(r.user_id)", userName: r.creator_name ?? "Unknown",
+                     userAge: r.creator_age ?? 0, userPhoto: r.creator_photo ?? "",
+                     videoUrl: r.video_url ?? "", caption: r.caption ?? "",
+                     likes: r.like_count ?? 0, isLiked: false,
+                     isVerified: r.creator_verified ?? false, location: r.creator_location ?? "")
+            }
+        } catch {
+            feedReels = Reel.demos
+        }
+
+        // Combine: user's reels first, then feed reels (deduped)
+        let userReelIds = Set(userReels.map { $0.id })
+        let otherReels = feedReels.filter { !userReelIds.contains($0.id) }
+        reels = userReels + otherReels
     }
 
     private func makeDemoProfile() -> DiscoverProfile {
@@ -561,5 +614,150 @@ struct ReelThumbnailCard: View {
         }
         .frame(width: 140, height: 200)
         .clipShape(RoundedRectangle(cornerRadius: 14))
+    }
+}
+
+// MARK: - Profile Reel Feed View (Full-Screen with Global/Local)
+
+struct ProfileReelFeedView: View {
+    let initialReels: [Reel]
+    let startIndex: Int
+    let userName: String
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var reels: [Reel] = []
+    @State private var currentIndex = 0
+    @State private var feedScope: ReelFeedScope = .global
+    @State private var isLoading = false
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            if reels.isEmpty && isLoading {
+                ProgressView().tint(.white).scaleEffect(1.5)
+            } else if reels.isEmpty {
+                VStack(spacing: 16) {
+                    Image(systemName: "play.rectangle.fill")
+                        .font(.system(size: 48))
+                        .foregroundColor(.gray)
+                    Text("No Reels")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                }
+            } else {
+                GeometryReader { geo in
+                    TabView(selection: $currentIndex) {
+                        ForEach(Array(reels.enumerated()), id: \.element.id) { index, reel in
+                            ReelCard(
+                                reel: Binding(
+                                    get: { reels[index] },
+                                    set: { reels[index] = $0 }
+                                ),
+                                isActive: index == currentIndex,
+                                onProfileTap: nil
+                            )
+                            .frame(width: geo.size.width, height: geo.size.height)
+                            .tag(index)
+                        }
+                    }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .frame(width: geo.size.width, height: geo.size.height)
+                }
+                .ignoresSafeArea()
+            }
+
+            // Header overlay
+            VStack {
+                HStack {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(width: 36, height: 36)
+                            .background(.black.opacity(0.4))
+                            .clipShape(Circle())
+                    }
+
+                    Text("Reels")
+                        .font(.title3.bold())
+                        .foregroundColor(.white)
+
+                    Spacer()
+
+                    // Global / Local toggle
+                    HStack(spacing: 0) {
+                        ForEach(ReelFeedScope.allCases, id: \.self) { scope in
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) { feedScope = scope }
+                                currentIndex = 0
+                                Task { await fetchFeedReels() }
+                            } label: {
+                                Text(scope.rawValue)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(feedScope == scope ? .white : .white.opacity(0.5))
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 6)
+                                    .background(feedScope == scope ? Color.white.opacity(0.2) : Color.clear)
+                                    .clipShape(Capsule())
+                            }
+                        }
+                    }
+                    .background(Color.white.opacity(0.1))
+                    .clipShape(Capsule())
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
+
+                Spacer()
+            }
+        }
+        .task {
+            reels = initialReels
+            currentIndex = min(startIndex, reels.count - 1)
+        }
+    }
+
+    private func fetchFeedReels() async {
+        isLoading = true
+        do {
+            struct ReelFeedItem: Codable {
+                let id: Int; let user_id: Int; let video_url: String?
+                let thumbnail_url: String?; let duration_sec: Int?
+                let caption: String?; let category: String?
+                let like_count: Int?; let view_count: Int?
+                let engagement_score: Double?
+                let creator_name: String?; let creator_age: Int?
+                let creator_photo: String?; let creator_verified: Bool?
+                let creator_location: String?
+            }
+            struct ReelFeedResponse: Codable {
+                let reels: [ReelFeedItem]
+                let session_id: String?
+                let count: Int?
+            }
+            let path = feedScope == .local ? "/reels/feed?scope=local" : "/reels/feed"
+            let response: ReelFeedResponse = try await APIService.shared.get(path: path)
+            let fetched = response.reels.map { r in
+                Reel(id: "\(r.id)", userId: "\(r.user_id)", userName: r.creator_name ?? "Unknown",
+                     userAge: r.creator_age ?? 0, userPhoto: r.creator_photo ?? "",
+                     videoUrl: r.video_url ?? "", caption: r.caption ?? "",
+                     likes: r.like_count ?? 0, isLiked: false,
+                     isVerified: r.creator_verified ?? false, location: r.creator_location ?? "")
+            }
+            reels = fetched.isEmpty ? filteredDemos : fetched
+        } catch {
+            reels = filteredDemos
+        }
+        isLoading = false
+    }
+
+    private var filteredDemos: [Reel] {
+        if feedScope == .local {
+            let localCities = ["Hyderabad", "Vizag"]
+            let local = Reel.demos.filter { localCities.contains($0.location) }
+            return local.isEmpty ? Reel.demos : local
+        }
+        return Reel.demos
     }
 }

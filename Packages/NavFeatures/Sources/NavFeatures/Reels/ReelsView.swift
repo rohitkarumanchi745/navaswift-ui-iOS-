@@ -2,6 +2,7 @@ import SwiftUI
 import AVFoundation
 import AVKit
 import PhotosUI
+import UniformTypeIdentifiers
 import NavCore
 import NavNetworking
 import NavServices
@@ -1084,6 +1085,8 @@ struct UploadReelView: View {
     @State private var hasPickedVideo = false
     @State private var caption = ""
     @State private var filterThumbnails: [VideoFilter: UIImage] = [:]
+    @State private var showCamera = false
+    @State private var showDocumentPicker = false
 
     var body: some View {
         NavigationStack {
@@ -1115,6 +1118,23 @@ struct UploadReelView: View {
                     }
                 }
             }
+            .fullScreenCover(isPresented: $showCamera) {
+                VideoCameraRecorder { videoURL in
+                    if let url = videoURL {
+                        uploadService.prepare(localURL: url)
+                        uploadService.applyFilter(.original)
+                        hasPickedVideo = true
+                    }
+                }
+                .ignoresSafeArea()
+            }
+            .sheet(isPresented: $showDocumentPicker) {
+                VideoDocumentPicker { url in
+                    uploadService.prepare(localURL: url)
+                    uploadService.applyFilter(.original)
+                    hasPickedVideo = true
+                }
+            }
         }
     }
 
@@ -1122,40 +1142,88 @@ struct UploadReelView: View {
 
     private var videoPickerView: some View {
         ScrollView {
-            VStack(spacing: 24) {
+            VStack(spacing: 16) {
+                Text("Choose a source")
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(.white.opacity(0.5))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                // Gallery (Photos Library)
                 PhotosPicker(selection: $selectedItem, matching: .videos) {
-                    RoundedRectangle(cornerRadius: 20)
-                        .fill(AppColors.darkCard)
-                        .frame(height: 300)
-                        .overlay {
-                            VStack(spacing: 12) {
-                                Image(systemName: "video.badge.plus")
-                                    .font(.system(size: 48))
-                                    .foregroundColor(AppColors.purpleAccent)
-                                Text("Tap to select video")
-                                    .font(.headline)
-                                    .foregroundColor(.white.opacity(0.7))
-                                Text("Max 30 seconds")
-                                    .font(.caption)
-                                    .foregroundColor(.white.opacity(0.4))
-                            }
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: 20))
+                    sourceOptionCard(
+                        icon: "photo.on.rectangle.angled",
+                        title: "Photo Library",
+                        subtitle: "Select from your gallery",
+                        color: AppColors.purpleAccent
+                    )
                 }
                 .onChange(of: selectedItem) { _, item in
                     Task {
                         guard let item else { return }
                         if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
-                            // Start pipeline immediately
                             uploadService.prepare(localURL: movie.url)
                             uploadService.applyFilter(.original)
                             hasPickedVideo = true
                         }
                     }
                 }
+
+                // Files / Drive
+                Button { showDocumentPicker = true } label: {
+                    sourceOptionCard(
+                        icon: "folder.fill",
+                        title: "Files & Drive",
+                        subtitle: "Import from Files, iCloud, or Drive",
+                        color: .blue
+                    )
+                }
+
+                // Camera Recording
+                Button { showCamera = true } label: {
+                    sourceOptionCard(
+                        icon: "video.fill",
+                        title: "Record Video",
+                        subtitle: "Capture from camera",
+                        color: .red
+                    )
+                }
+
+                Text("Max 30 seconds")
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.3))
+                    .padding(.top, 8)
             }
             .padding(24)
         }
+    }
+
+    private func sourceOptionCard(icon: String, title: String, subtitle: String, color: Color) -> some View {
+        HStack(spacing: 16) {
+            Image(systemName: icon)
+                .font(.system(size: 24))
+                .foregroundColor(color)
+                .frame(width: 52, height: 52)
+                .background(color.opacity(0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                Text(subtitle)
+                    .font(.system(size: 13))
+                    .foregroundColor(.white.opacity(0.5))
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(.white.opacity(0.3))
+        }
+        .padding(16)
+        .background(AppColors.darkCard)
+        .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
     // MARK: - Filter Editor
@@ -1404,6 +1472,101 @@ struct VideoTransferable: Transferable {
             let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("reel_\(UUID().uuidString).mp4")
             try FileManager.default.copyItem(at: received.file, to: tempURL)
             return Self(url: tempURL)
+        }
+    }
+}
+
+// MARK: - Video Camera Recorder (UIImagePickerController)
+
+struct VideoCameraRecorder: UIViewControllerRepresentable {
+    let onComplete: (URL?) -> Void
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.mediaTypes = ["public.movie"]
+        picker.videoMaximumDuration = 30
+        picker.videoQuality = .typeHigh
+        picker.cameraCaptureMode = .video
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onComplete: onComplete)
+    }
+
+    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let onComplete: (URL?) -> Void
+
+        init(onComplete: @escaping (URL?) -> Void) {
+            self.onComplete = onComplete
+        }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            picker.dismiss(animated: true)
+            if let videoURL = info[.mediaURL] as? URL {
+                // Copy to temp directory to ensure persistence
+                let tempURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("camera_\(UUID().uuidString).mp4")
+                try? FileManager.default.copyItem(at: videoURL, to: tempURL)
+                onComplete(tempURL)
+            } else {
+                onComplete(nil)
+            }
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            picker.dismiss(animated: true)
+            onComplete(nil)
+        }
+    }
+}
+
+// MARK: - Video Document Picker (Files / iCloud / Drive)
+
+struct VideoDocumentPicker: UIViewControllerRepresentable {
+    let onPick: (URL) -> Void
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let types: [UTType] = [.movie, .video, .mpeg4Movie, .quickTimeMovie, .avi]
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types)
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onPick: onPick)
+    }
+
+    class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onPick: (URL) -> Void
+
+        init(onPick: @escaping (URL) -> Void) {
+            self.onPick = onPick
+        }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let sourceURL = urls.first else { return }
+
+            // Start security-scoped access
+            guard sourceURL.startAccessingSecurityScopedResource() else { return }
+            defer { sourceURL.stopAccessingSecurityScopedResource() }
+
+            // Copy to temp directory
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("files_\(UUID().uuidString).mp4")
+            do {
+                try FileManager.default.copyItem(at: sourceURL, to: tempURL)
+                onPick(tempURL)
+            } catch {
+                // Failed to copy — ignore
+            }
         }
     }
 }
