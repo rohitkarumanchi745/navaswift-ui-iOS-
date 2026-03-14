@@ -128,6 +128,18 @@ struct VoiceIntroView: View {
     // MARK: - Recording
 
     private func startRecording() {
+        AVAudioApplication.requestRecordPermission { granted in
+            guard granted else {
+                DispatchQueue.main.async {
+                    alertMessage = "Microphone access is required to record a voice intro. Please enable it in Settings."; showAlert = true
+                }
+                return
+            }
+            DispatchQueue.main.async { beginRecordingSession() }
+        }
+    }
+
+    private func beginRecordingSession() {
         let session = AVAudioSession.sharedInstance()
         do {
             try session.setCategory(.playAndRecord, mode: .default)

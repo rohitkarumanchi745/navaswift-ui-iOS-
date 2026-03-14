@@ -521,25 +521,31 @@ struct CallView: View {
 
     private func setupCamera() {
         #if os(iOS)
-        let session = AVCaptureSession()
-        session.sessionPreset = .medium
+        AVCaptureDevice.requestAccess(for: .video) { granted in
+            guard granted else { return }
 
-        guard let device = AVCaptureDevice.default(
-            .builtInWideAngleCamera,
-            for: .video,
-            position: callManager.isCameraFront ? .front : .back
-        ) else { return }
+            let session = AVCaptureSession()
+            session.sessionPreset = .medium
 
-        guard let input = try? AVCaptureDeviceInput(device: device) else { return }
+            guard let device = AVCaptureDevice.default(
+                .builtInWideAngleCamera,
+                for: .video,
+                position: callManager.isCameraFront ? .front : .back
+            ) else { return }
 
-        if session.canAddInput(input) {
-            session.addInput(input)
-        }
+            guard let input = try? AVCaptureDeviceInput(device: device) else { return }
 
-        captureSession = session
+            if session.canAddInput(input) {
+                session.addInput(input)
+            }
 
-        Task.detached {
-            session.startRunning()
+            DispatchQueue.main.async {
+                captureSession = session
+            }
+
+            Task.detached {
+                session.startRunning()
+            }
         }
         #endif
     }
