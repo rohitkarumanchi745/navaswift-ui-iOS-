@@ -7,6 +7,8 @@ import NavNetworking
 public class LocationManager: NSObject, ObservableObject {
     @Published public var location: CLLocation?
     @Published public var city: String = "Unknown"
+    @Published public var country: String = ""
+    @Published public var countryCode: String = ""
     @Published public var isLoading = false
     @Published public var authorizationStatus: CLAuthorizationStatus = .notDetermined
 
@@ -40,6 +42,8 @@ public class LocationManager: NSObject, ObservableObject {
             }
             Task { @MainActor in
                 self?.city = placemark?.locality ?? "Unknown"
+                self?.country = placemark?.country ?? ""
+                self?.countryCode = placemark?.isoCountryCode ?? ""
                 self?.isLoading = false
                 self?.sendToBackend(location, placemark: placemark)
             }
@@ -87,6 +91,9 @@ extension LocationManager: CLLocationManagerDelegate {
     nonisolated public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         Task { @MainActor in
             self.authorizationStatus = manager.authorizationStatus
+            if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
+                updateLocation()
+            }
         }
     }
 }

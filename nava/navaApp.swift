@@ -91,6 +91,8 @@ struct navaApp: App {
                 .task {
                     // Connect AppDelegate to PushNotificationManager
                     appDelegate.pushManager = pushManager
+                    // Configure audio session for Bluetooth routing (calls, reels, media)
+                    AudioSessionManager.shared.configure()
                     // Start periodic telemetry flush (every 5 minutes)
                     NetworkMetrics.shared.startPeriodicFlush()
                 }
@@ -123,6 +125,8 @@ struct RootView: View {
         }
     }
 
+    @State private var permissionsGranted = false
+
     var body: some View {
         ZStack {
             switch auth.status {
@@ -137,9 +141,13 @@ struct RootView: View {
             case .authenticated:
                 if auth.user?.isProfileComplete == true {
                     MainTabView()
-                } else {
+                } else if permissionsGranted {
                     NavigationStack {
                         UpdateProfileView()
+                    }
+                } else {
+                    PermissionsGateView {
+                        permissionsGranted = true
                     }
                 }
             }
@@ -149,8 +157,6 @@ struct RootView: View {
         .onChange(of: auth.status) { _, newStatus in
             NavLog.debug("RootView: auth.status changed to \(newStatus)", category: .auth)
             if newStatus == .authenticated {
-                locationManager.requestPermission()
-                locationManager.updateLocation()
                 Task { await pushManager.requestPermission() }
             }
         }

@@ -341,6 +341,9 @@ public class AuthManager: ObservableObject {
             status = .authenticated
             NavLog.info("refreshProfile succeeded: \(profile.displayName)", category: .auth)
             return profile
+        } catch is CancellationError {
+            NavLog.debug("refreshProfile cancelled", category: .auth)
+            return nil
         } catch {
             NavLog.error("refreshProfile failed: \(error)", category: .auth)
             status = .unauthenticated

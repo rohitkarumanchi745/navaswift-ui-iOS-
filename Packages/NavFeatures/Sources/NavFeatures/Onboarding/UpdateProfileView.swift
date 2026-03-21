@@ -48,6 +48,8 @@ public struct UpdateProfileView: View {
     // Photos
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var photoImages: [PlatformImage] = []
+    @State private var showNoFaceAlert = false
+    @State private var noFaceCount = 0
 
     @State private var isSaving = false
     @State private var showError = false
@@ -189,6 +191,13 @@ public struct UpdateProfileView: View {
             Button("OK") {}
         } message: {
             Text(errorMessage)
+        }
+        .alert("Face Not Detected", isPresented: $showNoFaceAlert) {
+            Button("OK") {}
+        } message: {
+            Text(noFaceCount == 1
+                 ? "The photo you selected doesn't contain a visible face. Please upload a photo that clearly shows your face."
+                 : "\(noFaceCount) photos were rejected because no face was detected. Please upload photos that clearly show your face.")
         }
         .onAppear {
             if let user = auth.user {
@@ -467,7 +476,8 @@ public struct UpdateProfileView: View {
                 UniversityPickerView(
                     selectedUniversity: $university,
                     selectedLocation: $universityLocation,
-                    selectedStudy: $study
+                    selectedStudy: $study,
+                    countryCode: locationManager.countryCode
                 )
                 .onChange(of: university) { _, newUni in
                     // Show email verification prompt when university is selected
@@ -602,7 +612,7 @@ public struct UpdateProfileView: View {
                     .font(.system(size: 32, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white)
 
-                Text("Add up to 3 photos")
+                Text("Add up to 3 photos with your face visible")
                     .font(.system(size: 15, design: .rounded))
                     .foregroundStyle(.white.opacity(0.4))
             }
@@ -649,13 +659,22 @@ public struct UpdateProfileView: View {
                         }
                         .onChange(of: selectedPhotos) { items in
                             Task {
+                                var rejected = 0
                                 for item in items {
                                     if let data = try? await item.loadTransferable(type: Data.self),
                                        let image = decodeImageData(data) {
-                                        photoImages.append(image)
+                                        if imageContainsFace(image) {
+                                            photoImages.append(image)
+                                        } else {
+                                            rejected += 1
+                                        }
                                     }
                                 }
                                 selectedPhotos = []
+                                if rejected > 0 {
+                                    noFaceCount = rejected
+                                    showNoFaceAlert = true
+                                }
                             }
                         }
                     } else {
@@ -1234,35 +1253,80 @@ struct OnboardingSelfieView: View {
     }
 
     private func verifySelfie() {
-        guard let image = selfieImage,
-              let imageData = imageToJPEGData(image, compressionQuality: 0.8) else { return }
+        guard let image = selfieImage else { return }
         isSubmitting = true
         Task {
-            do {
-                struct VerifyResponse: Codable {
-                    let verified: Bool?
-                    let message: String?
-                    let confidence: Double?
+            // Check selfie contains a face
+            guard imageContainsFace(image) else {
+                alertMessage = "No face detected in your selfie. Please take a clearer photo."
+                isSubmitting = false; showAlert = true; return
+            }
+
+            // Compare selfie against profile photos (skip for demo mode or no photos)
+            if let photos = auth.user?.photos, !photos.isEmpty,
+               auth.token != nil && auth.token?.hasPrefix("demo-token") != true {
+                let referenceImages = await downloadProfilePhotos(photos)
+                if !referenceImages.isEmpty {
+                    let result = selfieFaceMatchesAnyReference(
+                        selfie: image,
+                        references: referenceImages
+                    )
+                    guard result.matches else {
+                        alertMessage = "Your selfie doesn't appear to match your profile photos. Please take a selfie of yourself."
+                        isSubmitting = false; showAlert = true; return
+                    }
                 }
-                let result: VerifyResponse = try await APIService.shared.multipartUpload(
-                    path: "/verify/selfie",
-                    fileData: imageData,
-                    fileName: "selfie.jpg",
-                    mimeType: "image/jpeg",
-                    fileField: "selfie"
-                )
-                await auth.refreshProfile()
-                if result.verified == true {
-                    alertMessage = "Verification successful! You now have a verified badge."
-                } else {
-                    alertMessage = result.message ?? "Verification could not be completed. You can try again later from your profile."
+            }
+
+            await uploadSelfie(image)
+        }
+    }
+
+    private func uploadSelfie(_ image: PlatformImage) async {
+        guard let imageData = imageToJPEGData(image, compressionQuality: 0.8) else {
+            alertMessage = "Could not process image."
+            isSubmitting = false; showAlert = true; return
+        }
+        do {
+            struct VerifyResponse: Codable {
+                let verified: Bool?
+                let message: String?
+                let confidence: Double?
+            }
+            let result: VerifyResponse = try await APIService.shared.multipartUpload(
+                path: "/verify/selfie",
+                fileData: imageData,
+                fileName: "selfie.jpg",
+                mimeType: "image/jpeg",
+                fileField: "selfie"
+            )
+            await auth.refreshProfile()
+            if result.verified == true {
+                alertMessage = "Verification successful! You now have a verified badge."
+            } else {
+                alertMessage = result.message ?? "Verification could not be completed. You can try again later from your profile."
+            }
+        } catch {
+            alertMessage = "Verification failed: \(error.localizedDescription)\nYou can try again later from your profile."
+        }
+        isSubmitting = false
+        showAlert = true
+    }
+
+    private func downloadProfilePhotos(_ photoPaths: [String]) async -> [PlatformImage] {
+        var images: [PlatformImage] = []
+        for path in photoPaths {
+            guard let url = AppConfig.resolvePhotoURL(path) else { continue }
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                if let image = decodeImageData(data) {
+                    images.append(image)
                 }
             } catch {
-                alertMessage = "Verification failed: \(error.localizedDescription)\nYou can try again later from your profile."
+                continue
             }
-            isSubmitting = false
-            showAlert = true
         }
+        return images
     }
 }
 

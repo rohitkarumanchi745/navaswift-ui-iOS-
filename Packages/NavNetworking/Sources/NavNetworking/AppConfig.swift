@@ -15,8 +15,8 @@ public struct AppConfig {
     private init() {
         #if DEBUG
         environment = .development
-        apiBaseURL = "http://127.0.0.1:8080"
-        wsBaseURL = "ws://127.0.0.1:8080"
+        apiBaseURL = "http://192.168.1.103:8080"
+        wsBaseURL = "ws://192.168.1.103:8080"
         #else
         environment = .production
         // Replace with your production server URL before App Store submission

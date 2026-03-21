@@ -87,6 +87,31 @@ struct ProfileView: View {
             ScrollView {
                 VStack(spacing: 0) {
                     heroSection
+
+                    // Photo gallery
+                    if let photos = auth.user?.photos, photos.count > 1 {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 10) {
+                                ForEach(Array(photos.enumerated()), id: \.offset) { _, photoPath in
+                                    AsyncImage(url: AppConfig.resolvePhotoURL(photoPath)) { image in
+                                        image.resizable().scaledToFill()
+                                    } placeholder: {
+                                        RoundedRectangle(cornerRadius: 14)
+                                            .fill(.white.opacity(0.06))
+                                            .overlay(
+                                                ProgressView()
+                                                    .tint(.white.opacity(0.3))
+                                            )
+                                    }
+                                    .frame(width: 100, height: 140)
+                                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                        }
+                        .padding(.top, 16)
+                    }
+
                     statsRow
                         .padding(.top, 12)
 

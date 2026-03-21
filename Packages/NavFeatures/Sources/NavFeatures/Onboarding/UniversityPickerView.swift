@@ -9,6 +9,7 @@ struct UniversityPickerView: View {
     @Binding var selectedUniversity: String
     @Binding var selectedLocation: String
     @Binding var selectedStudy: String
+    var countryCode: String = ""
 
     @State private var searchText = ""
     @State private var results: [UniversitySearchResult] = []
@@ -142,16 +143,16 @@ struct UniversityPickerView: View {
         }
         .onChange(of: isSearchFocused) { _, focused in
             if focused && searchText.trimmingCharacters(in: .whitespaces).isEmpty && selectedUniversity.isEmpty {
-                results = UniversitySearchResult.demos
                 showResults = true
+                Task { await loadNearbyUniversities() }
             }
         }
         .onChange(of: searchText) { _, newValue in
             let trimmed = newValue.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty {
                 if isSearchFocused && selectedUniversity.isEmpty {
-                    results = UniversitySearchResult.demos
                     showResults = true
+                    Task { await loadNearbyUniversities() }
                 } else {
                     results = []
                     showResults = false
@@ -339,13 +340,32 @@ struct UniversityPickerView: View {
 
     // MARK: - Search
 
+    private func loadNearbyUniversities() async {
+        isSearching = true
+        do {
+            var path = "/universities/search?q=&limit=20"
+            if !countryCode.isEmpty {
+                let cc = countryCode.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? countryCode
+                path += "&country=\(cc)"
+            }
+            let response: UniversitySearchResponse = try await APIService.shared.get(path: path)
+            results = response.universities
+        } catch {
+            results = UniversitySearchResult.demos
+        }
+        isSearching = false
+    }
+
     private func searchUniversities(query: String) async {
         isSearching = true
         do {
             let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
-            let response: UniversitySearchResponse = try await APIService.shared.get(
-                path: "/universities/search?q=\(encoded)&limit=10"
-            )
+            var path = "/universities/search?q=\(encoded)&limit=10"
+            if !countryCode.isEmpty {
+                let cc = countryCode.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? countryCode
+                path += "&country=\(cc)"
+            }
+            let response: UniversitySearchResponse = try await APIService.shared.get(path: path)
             // Only update if search text hasn't changed
             if searchText.trimmingCharacters(in: .whitespaces).lowercased().contains(query.lowercased().prefix(3)) {
                 results = response.universities

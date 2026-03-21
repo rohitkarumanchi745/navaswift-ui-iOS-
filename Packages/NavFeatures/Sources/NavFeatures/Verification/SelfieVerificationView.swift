@@ -107,29 +107,71 @@ struct SelfieVerificationView: View {
         guard let image = selfieImage else { return }
         isSubmitting = true
         Task {
-            do {
-                guard let imageData = imageToJPEGData(image, compressionQuality: 0.8) else {
-                    alertMessage = "Could not process image."
-                    isSubmitting = false; showAlert = true; return
-                }
+            // Check selfie contains a face
+            guard imageContainsFace(image) else {
+                alertMessage = "No face detected in your selfie. Please take a clearer photo."
+                isSubmitting = false; showAlert = true; return
+            }
 
-                struct VerifyResponse: Codable {
-                    let verified: Bool?; let message: String?; let confidence: Double?
+            // Compare selfie against profile photos (skip for demo mode or no photos)
+            if let photos = auth.user?.photos, !photos.isEmpty,
+               auth.token != nil && auth.token?.hasPrefix("demo-token") != true {
+                let referenceImages = await downloadProfilePhotos(photos)
+                if !referenceImages.isEmpty {
+                    let result = selfieFaceMatchesAnyReference(
+                        selfie: image,
+                        references: referenceImages
+                    )
+                    guard result.matches else {
+                        alertMessage = "Your selfie doesn't appear to match your profile photos. Please take a selfie of yourself."
+                        isSubmitting = false; showAlert = true; return
+                    }
                 }
-                let result: VerifyResponse = try await APIService.shared.multipartUpload(
-                    path: "/verify/selfie", fileData: imageData,
-                    fileName: "selfie.jpg", mimeType: "image/jpeg", fileField: "selfie")
-                await auth.refreshProfile()
-                if result.verified == true {
-                    alertMessage = "Verification successful! Your profile now has a verified badge."
-                } else {
-                    alertMessage = result.message ?? "Verification could not be completed. Please try again with a clearer photo."
+            }
+
+            await uploadSelfie(image)
+        }
+    }
+
+    private func uploadSelfie(_ image: PlatformImage) async {
+        do {
+            guard let imageData = imageToJPEGData(image, compressionQuality: 0.8) else {
+                alertMessage = "Could not process image."
+                isSubmitting = false; showAlert = true; return
+            }
+
+            struct VerifyResponse: Codable {
+                let verified: Bool?; let message: String?; let confidence: Double?
+            }
+            let result: VerifyResponse = try await APIService.shared.multipartUpload(
+                path: "/verify/selfie", fileData: imageData,
+                fileName: "selfie.jpg", mimeType: "image/jpeg", fileField: "selfie")
+            await auth.refreshProfile()
+            if result.verified == true {
+                alertMessage = "Verification successful! Your profile now has a verified badge."
+            } else {
+                alertMessage = result.message ?? "Verification could not be completed. Please try again with a clearer photo."
+            }
+        } catch {
+            alertMessage = "Verification failed: \(error.localizedDescription)"
+        }
+        isSubmitting = false; showAlert = true
+    }
+
+    private func downloadProfilePhotos(_ photoPaths: [String]) async -> [PlatformImage] {
+        var images: [PlatformImage] = []
+        for path in photoPaths {
+            guard let url = AppConfig.resolvePhotoURL(path) else { continue }
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                if let image = decodeImageData(data) {
+                    images.append(image)
                 }
             } catch {
-                alertMessage = "Verification failed: \(error.localizedDescription)"
+                continue
             }
-            isSubmitting = false; showAlert = true
         }
+        return images
     }
 }
 

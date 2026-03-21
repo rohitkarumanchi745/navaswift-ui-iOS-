@@ -1,6 +1,7 @@
 import SwiftUI
 import Foundation
 import CoreImage
+import Vision
 
 #if canImport(UIKit)
 import UIKit
@@ -39,6 +40,152 @@ public func decodeImageData(_ data: Data) -> PlatformImage? {
     #elseif canImport(AppKit)
     return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
     #endif
+}
+
+/// Detects whether the image contains at least one human face using the Vision framework.
+/// Returns `true` if a face is found, `false` otherwise.
+public func imageContainsFace(_ image: PlatformImage) -> Bool {
+    #if canImport(UIKit)
+    guard let cgImage = image.cgImage else { return false }
+    #elseif canImport(AppKit)
+    guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return false }
+    #endif
+
+    let request = VNDetectFaceRectanglesRequest()
+    let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+    do {
+        try handler.perform([request])
+        guard let results = request.results else { return false }
+        return !results.isEmpty
+    } catch {
+        return false
+    }
+}
+
+// MARK: - Face Similarity
+
+/// Default distance threshold for face similarity comparison.
+/// Lower values are stricter. Tuned for cropped-face VNFeaturePrint comparison.
+public let faceSimilarityThreshold: Float = 15.0
+
+/// Detects the largest face in the image and returns a cropped image of just the face region
+/// with 30% padding around the bounding box. Returns nil if no face is detected.
+public func cropFaceFromImage(_ image: PlatformImage) -> PlatformImage? {
+    #if canImport(UIKit)
+    guard let cgImage = image.cgImage else { return nil }
+    #elseif canImport(AppKit)
+    guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+    #endif
+
+    let request = VNDetectFaceRectanglesRequest()
+    let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+    do {
+        try handler.perform([request])
+    } catch { return nil }
+
+    guard let faces = request.results, !faces.isEmpty else { return nil }
+
+    // Pick the largest face by area
+    let largestFace = faces.max(by: {
+        $0.boundingBox.width * $0.boundingBox.height < $1.boundingBox.width * $1.boundingBox.height
+    })!
+    let box = largestFace.boundingBox
+
+    let imageWidth = CGFloat(cgImage.width)
+    let imageHeight = CGFloat(cgImage.height)
+
+    // Convert normalized coordinates to pixel coordinates
+    // Vision uses bottom-left origin; CGImage uses top-left origin
+    let padding: CGFloat = 0.3
+    let faceX = box.origin.x * imageWidth
+    let faceY = (1 - box.origin.y - box.height) * imageHeight
+    let faceW = box.width * imageWidth
+    let faceH = box.height * imageHeight
+
+    let padW = faceW * padding
+    let padH = faceH * padding
+    let cropRect = CGRect(
+        x: max(0, faceX - padW),
+        y: max(0, faceY - padH),
+        width: min(imageWidth - max(0, faceX - padW), faceW + 2 * padW),
+        height: min(imageHeight - max(0, faceY - padH), faceH + 2 * padH)
+    )
+
+    guard let croppedCG = cgImage.cropping(to: cropRect) else { return nil }
+
+    #if canImport(UIKit)
+    return UIImage(cgImage: croppedCG)
+    #elseif canImport(AppKit)
+    return NSImage(cgImage: croppedCG, size: NSSize(width: croppedCG.width, height: croppedCG.height))
+    #endif
+}
+
+/// Generates a VNFeaturePrintObservation for the given image.
+public func generateFeaturePrint(_ image: PlatformImage) -> VNFeaturePrintObservation? {
+    #if canImport(UIKit)
+    guard let cgImage = image.cgImage else { return nil }
+    #elseif canImport(AppKit)
+    guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+    #endif
+
+    let request = VNGenerateImageFeaturePrintRequest()
+    let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+    do {
+        try handler.perform([request])
+        return request.results?.first
+    } catch {
+        return nil
+    }
+}
+
+/// Computes the face similarity distance between two images.
+/// Lower distance = more similar. Returns nil if feature prints cannot be generated.
+public func faceSimilarityDistance(_ imageA: PlatformImage, _ imageB: PlatformImage) -> Float? {
+    guard let fpA = generateFeaturePrint(imageA),
+          let fpB = generateFeaturePrint(imageB) else { return nil }
+    var distance: Float = 0
+    do {
+        try fpA.computeDistance(&distance, to: fpB)
+        return distance
+    } catch {
+        return nil
+    }
+}
+
+/// Compares a selfie against an array of reference images.
+/// Returns true if the selfie face matches at least one reference within the threshold.
+/// Handles face cropping internally — pass full (uncropped) images.
+public func selfieFaceMatchesAnyReference(
+    selfie: PlatformImage,
+    references: [PlatformImage],
+    threshold: Float = faceSimilarityThreshold
+) -> (matches: Bool, bestDistance: Float?) {
+    guard let selfieFace = cropFaceFromImage(selfie),
+          let selfieFP = generateFeaturePrint(selfieFace) else {
+        return (false, nil)
+    }
+
+    var bestDistance: Float?
+    for reference in references {
+        guard let refFace = cropFaceFromImage(reference),
+              let refFP = generateFeaturePrint(refFace) else {
+            continue
+        }
+        var distance: Float = 0
+        do {
+            try selfieFP.computeDistance(&distance, to: refFP)
+            if bestDistance == nil || distance < bestDistance! {
+                bestDistance = distance
+            }
+        } catch {
+            continue
+        }
+    }
+
+    guard let best = bestDistance else {
+        return (false, nil)
+    }
+    return (best <= threshold, best)
 }
 
 /// Converts a PlatformImage to JPEG data with the given compression quality.

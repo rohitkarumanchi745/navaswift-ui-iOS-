@@ -24,6 +24,7 @@ struct EditProfileView: View {
     @State private var showAlert = false
     @State private var alertMessage = ""
     @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var newPhotoImages: [UIImage] = []
 
     private let genderOptions = ["Male", "Female", "Non-binary"]
 
@@ -247,11 +248,15 @@ struct EditProfileView: View {
                 PhotosPicker(selection: $selectedPhotos, maxSelectionCount: 3, matching: .images) {
                     RoundedRectangle(cornerRadius: 20).fill(AppColors.darkInput).frame(height: 200)
                         .overlay {
-                            if let firstPhoto = auth.user?.photos?.first, !firstPhoto.isEmpty {
+                            if let newImg = newPhotoImages.first {
+                                Image(uiImage: newImg).resizable().scaledToFill()
+                                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                            } else if let firstPhoto = auth.user?.photos?.first, !firstPhoto.isEmpty {
                                 AsyncImage(url: AppConfig.resolvePhotoURL(firstPhoto)) { image in
                                     image.resizable().scaledToFill()
                                 } placeholder: { addPhotoPlaceholder }
                                 .clipShape(RoundedRectangle(cornerRadius: 20))
+                                .id(firstPhoto)
                             } else { addPhotoPlaceholder }
                         }
                         .clipShape(RoundedRectangle(cornerRadius: 20))
@@ -261,13 +266,19 @@ struct EditProfileView: View {
                     ForEach(1..<3) { index in
                         RoundedRectangle(cornerRadius: 16).fill(AppColors.darkInput).frame(height: 94)
                             .overlay {
-                                let photos = auth.user?.photos ?? []
-                                if index < photos.count, !photos[index].isEmpty {
-                                    AsyncImage(url: AppConfig.resolvePhotoURL(photos[index])) { image in
-                                        image.resizable().scaledToFill()
-                                    } placeholder: { smallAddPlaceholder }
-                                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                                } else { smallAddPlaceholder }
+                                if index < newPhotoImages.count {
+                                    Image(uiImage: newPhotoImages[index]).resizable().scaledToFill()
+                                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                                } else {
+                                    let photos = auth.user?.photos ?? []
+                                    if index < photos.count, !photos[index].isEmpty {
+                                        AsyncImage(url: AppConfig.resolvePhotoURL(photos[index])) { image in
+                                            image.resizable().scaledToFill()
+                                        } placeholder: { smallAddPlaceholder }
+                                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                                        .id(photos[index])
+                                    } else { smallAddPlaceholder }
+                                }
                             }
                             .clipShape(RoundedRectangle(cornerRadius: 16))
                     }
@@ -277,6 +288,18 @@ struct EditProfileView: View {
         }
         .padding(16).background(AppColors.darkCard)
         .clipShape(RoundedRectangle(cornerRadius: 24))
+        .onChange(of: selectedPhotos) { _, items in
+            Task {
+                var decoded: [UIImage] = []
+                for item in items {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let img = UIImage(data: data) {
+                        decoded.append(img)
+                    }
+                }
+                newPhotoImages = decoded
+            }
+        }
     }
 
     private var addPhotoPlaceholder: some View {
@@ -337,31 +360,53 @@ struct EditProfileView: View {
         isSaving = true
         Task {
             do {
+                // Encode any newly selected photos as base64 data URIs
+                var photoVars: [String: Any] = [:]
+                for (i, img) in newPhotoImages.prefix(3).enumerated() {
+                    if let data = img.jpegData(compressionQuality: 0.8) {
+                        photoVars["profile_photo_\(i + 1)"] = "data:image/jpeg;base64,\(data.base64EncodedString())"
+                    }
+                }
+
+                // Build dynamic photo param declarations
+                var photoParamDecl = ""
+                var photoArgs = ""
+                for i in 1...3 {
+                    if photoVars["profile_photo_\(i)"] != nil {
+                        photoParamDecl += ", $profile_photo_\(i): String"
+                        photoArgs += ", profile_photo_\(i): $profile_photo_\(i)"
+                    }
+                }
+
                 let mutation = """
                 mutation UpdateProfile(
                     $name: String!, $bio: String!, $gender: String!, $location: String!,
                     $looking_for: String!, $interests: [String!]!, $languages: [String!]!,
                     $height_cm: Int, $profession_category: String, $profession_title: String,
-                    $university: String, $university_location: String, $study: String
+                    $university: String, $university_location: String, $study: String\(photoParamDecl)
                 ) {
                     update_profile(
                         name: $name, bio: $bio, gender: $gender, location: $location,
                         looking_for: $looking_for, interests: $interests, languages: $languages,
                         height_cm: $height_cm, profession_category: $profession_category,
                         profession_title: $profession_title, university: $university,
-                        university_location: $university_location, study: $study
+                        university_location: $university_location, study: $study\(photoArgs)
                     )
                 }
                 """
-                let variables: [String: Any] = [
+                var variables: [String: Any] = [
                     "name": name, "bio": bio, "gender": gender, "location": location,
                     "looking_for": lookingFor, "interests": Array(interests),
                     "languages": Array(languages), "height_cm": Int(height) as Any,
                     "profession_category": professionCategory, "profession_title": professionTitle,
                     "university": university, "university_location": universityLocation, "study": study,
                 ]
+                variables.merge(photoVars) { _, new in new }
+
                 let _: [String: Any] = try await APIService.shared.graphQL(query: mutation, variables: variables)
                 await auth.refreshProfile()
+                newPhotoImages = []
+                selectedPhotos = []
                 alertMessage = "Profile updated successfully!"
             } catch {
                 alertMessage = "Failed to save. Please try again."
