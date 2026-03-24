@@ -12,6 +12,7 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 - **University discovery** for student-verified profiles
 - **Sent Likes** view with super-liked vs regular likes separated into sections
 - **Matches** view with "Super Liked You" horizontal carousel, message requests, and regular likes grid
+- **Reel & voice intro indicators** on discover cards showing whether a user has uploaded reels or a voice intro
 
 ### Student Search
 - **University-grouped results** — search results grouped by university with sticky headers showing graduation cap icon, university name, and student count
@@ -22,20 +23,38 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 
 ### Reels
 - **Short-form video reels** for profile expression
-- **Parallel pipeline upload** — compression starts immediately on video pick, filter export runs while user browses, upload fires on Post tap
+- **Apple Music integration** — search the Apple Music catalog, preview 30-second clips, and attach songs to reel uploads with adjustable music/original audio volume mixing
+- **Video trimmer** — inline trim editor with frame strip timeline and draggable handles, triggered automatically when a picked video exceeds 30 seconds; supports export at up to 4K resolution
+- **Parallel pipeline upload** — compression starts immediately on video pick, filter export runs while user browses, audio mixing runs on Post tap, upload fires when ready
+- **Smart compression** — progressive downscale pipeline (4K → 1080p → 720p → 540p → 480p) with 50MB threshold to minimize upload size
+- **Audio mixing** — `AVMutableComposition`-based audio mux blends music preview track (looped to fill duration) with original video audio at user-specified volumes, exported without video re-encode
 - **7 video filters** (Original, Vivid, Warm, Cool, Vintage, Drama, Fade) with real-time CIFilter preview thumbnails
 - **AVVideoComposition-based** per-frame filter export with progress tracking
+- **Live upload preview** — tapping the thumbnail plays the filtered video alongside the music preview clip simultaneously before posting
 - **Private messaging** on reels (Instagram-style DM via reel)
-- **Reel inbox** with conversation threads
+- **Reel inbox** with conversation threads and unread count badge
 - **Reel message composer** with reply context
+- **Reel activity feed** — full-screen activity list with filterable categories (All, Likes, Views, Messages, Creator Likes) fetched from `/reels/activity`
+- **Like creator** action from reel cards
+- **Global/Local feed scope** toggle for location-scoped reel discovery
 - **Floating upload progress pill** showing pipeline status across all tabs
+- **Draggable tab bar overlay** — swipe up/down to reveal/hide the tab bar within full-screen reel experience
 
 ### Chat & Communication
 - **Real-time WebSocket chat** with typing indicators and read receipts
+- **Real-time presence** — partner online status and last-seen timestamps derived from WebSocket connection state
 - **GraphQL-powered** message history with pagination
 - **Message requests** with accept/decline flow
 - **Voice & video call** integration (WebRTC signaling via `CallManager`)
 - Conversation list with unread badges
+
+### Push Notifications
+- **Notification Service Extension** — separate process intercepts push notifications before display to enrich with sender names and download profile photo / reel thumbnail media attachments
+- **Actionable notification categories** — MESSAGE (inline reply), MATCH (View Match), LIKE (View Profile), REEL (View Reel + Reply) with lock screen action buttons
+- **Inline reply from notifications** — reply directly from the lock screen without opening the app; routes to chat or reel thread REST endpoints
+- **Deep link prefetch** — app prefetches conversation/match data via GraphQL before navigating so the destination screen loads instantly
+- **Background fetch** — silent push prewarms badge counts via GraphQL `matches` query
+- **Token lifecycle** — device token registered on login, unregistered on logout
 
 ### Premium (StoreKit 2)
 - **Gold, Platinum, Ultra** subscription tiers via Apple In-App Purchase
@@ -45,11 +64,12 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 - StoreKit Configuration file for sandbox testing
 
 ### Verification
-- **Selfie verification** with on-device liveness detection (Vision framework face detection)
-- **On-device face matching** — selfie compared against existing profile photos using `VNGenerateImageFeaturePrintRequest` feature-print distance before uploading to backend
+- **Live selfie camera** — in-app front-camera capture session using `AVCaptureSession` with mirrored output (not UIImagePickerController) and shutter flash animation
+- **On-device face detection** — Vision framework confirms a face is present in the selfie before proceeding
+- **On-device face matching** — selfie compared against existing profile photos using `VNGenerateImageFeaturePrintRequest` feature-print distance; rejected client-side if no match
 - **Dual-layer verification** — client-side Vision framework face matching + server-side ArcFace ONNX model
 - **Face detection on photo uploads** — profile photos must contain a visible face or they are rejected during onboarding
-- **Student verification** via university email OTP with multi-step flow
+- **Student verification** via university email OTP with multi-step flow (tracks method: email, student ID, enrollment doc, campus, LMS)
 - **Student ID verification** with photo upload
 - **Alumni verification** for graduated users
 - **Campus verification** with location-based check-in
@@ -61,7 +81,10 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 - Profile editing with photo upload and **university picker** (API-driven autocomplete)
 - **Interleaved profile detail view** — photos interspersed with bio, interests, languages, and reels sections
 - **Photo gallery** — horizontal scrollable gallery of all profile photos on the profile screen
-- **My Reels** section on profile with horizontal thumbnail carousel
+- **My Reels tab** on profile with 3-column thumbnail grid showing view/like count overlays
+- **My Reels player** — full-screen paging reel player for the user's own uploads, launched from the profile grid
+- **Reel engagement stats** — aggregate Likes / Views / Messages displayed on profile
+- **Reel activity section** — latest 5 activity items (who liked/viewed/messaged) with "See All" link to full activity feed
 - Preference management (age range, distance, interests)
 - **Invite friends** sharing flow
 - Notification preferences
@@ -76,19 +99,21 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 - **University picker** with API-driven autocomplete and trending suggestions
 
 ### Infrastructure
-- **Deep linking** support for navigating to profiles, matches, and reels
+- **Deep linking** support for navigating to profiles, matches, reels, and reel message threads
 - **Network monitoring** with connectivity status
-- **Network metrics** tracking for API performance with circuit breaker
-- **Push notification** management with background fetch
-- **Local caching** with AES-GCM encryption for offline data persistence
+- **Network metrics** tracking for API performance with circuit breaker and periodic flush (5-minute interval)
+- **Push notification** management with actionable categories, inline reply, deep link prefetch, and background fetch
+- **Notification Service Extension** for rich media push notifications
+- **Local caching** with AES-GCM encryption for offline data persistence (including reel activity fallback)
 - **Audio session management** with Bluetooth routing for calls, reels, and media
 - **Structured logging** via `NavLog` with categories
 - **HEIF/WebP/DNG/RAW image decoding** support via CIImage fallback
 - **Graceful task cancellation** — SwiftUI `.task` cancellations handled without disrupting auth state
+- **Upload retry** — failed reel uploads can be retried without re-compressing or re-filtering
 
 ## Architecture
 
-The project uses a **Swift Package Manager (SPM)** modular architecture with 4 local packages:
+The project uses a **Swift Package Manager (SPM)** modular architecture with 4 local packages plus a Notification Service Extension:
 
 ```
 nava/
@@ -98,6 +123,10 @@ nava/
 │   ├── Products.storekit              # StoreKit testing configuration
 │   └── PrivacyInfo.xcprivacy          # Privacy manifest
 │
+├── NotificationServiceExtension/
+│   ├── NotificationService.swift      # Rich push: media attachments, categories, sender names
+│   └── Info.plist                     # Extension configuration
+│
 ├── Packages/
 │   ├── NavCore/                       # Shared models, theme, utilities
 │   │   └── Sources/NavCore/
@@ -106,7 +135,8 @@ nava/
 │   │       │   ├── StudentModels.swift        # Search, filters, student results
 │   │       │   ├── UniversityModels.swift     # University search/autocomplete models
 │   │       │   ├── GraphQLModels.swift        # GraphQL response types
-│   │       │   ├── ReelMessageModels.swift    # Reel messaging models
+│   │       │   ├── ReelMessageModels.swift    # Reel messaging, inbox, activity, match status models
+│   │       │   ├── ReelMusic.swift            # Apple Music track metadata for reel uploads
 │   │       │   ├── AIInsightsModels.swift     # AI insights response models
 │   │       │   ├── VerificationModels.swift   # Verification status/type models
 │   │       │   ├── StoreProductID.swift       # IAP product identifiers
@@ -120,7 +150,7 @@ nava/
 │   │       ├── Extensions/
 │   │       │   ├── Array+Safe.swift           # Safe array subscript
 │   │       │   └── ImageDecoding.swift        # Image decoding, face detection, face matching
-│   │       ├── DeepLink.swift                 # Deep link routing
+│   │       ├── DeepLink.swift                 # Deep link routing (profiles, matches, reels, reel messages)
 │   │       ├── LocalCache.swift               # Disk-based caching
 │   │       └── Logger.swift                   # Structured logging (NavLog)
 │   │
@@ -133,20 +163,20 @@ nava/
 │   │   └── Sources/NavServices/
 │   │       ├── AuthManager.swift              # OTP auth, JWT tokens, keychain
 │   │       ├── StoreKitManager.swift          # StoreKit 2 IAP management
-│   │       ├── ChatWebSocket.swift            # WebSocket client for real-time chat
+│   │       ├── ChatWebSocket.swift            # WebSocket client for real-time chat + presence
 │   │       ├── CallManager.swift              # WebRTC call signaling
 │   │       ├── LocationManager.swift          # CoreLocation + backend sync
 │   │       ├── NetworkMonitor.swift           # NWPathMonitor connectivity
-│   │       ├── NetworkMetrics.swift           # API latency/error tracking
-│   │       ├── PushNotificationManager.swift  # APNs registration + handling
+│   │       ├── NetworkMetrics.swift           # API latency/error tracking with periodic flush
+│   │       ├── PushNotificationManager.swift  # APNs registration, categories, inline reply, prefetch
 │   │       ├── NotificationOutcome.swift      # Notification action results
 │   │       ├── AudioSessionManager.swift      # Audio session + Bluetooth routing
-│   │       ├── ReelUploadService.swift        # Parallel pipeline reel upload (compress → filter → upload)
+│   │       ├── ReelUploadService.swift        # 8-phase parallel pipeline (compress → filter → mix audio → upload)
 │   │       └── VideoFilter.swift              # 7-filter enum with CIFilter + AVVideoComposition export
 │   │
 │   └── NavFeatures/                   # All UI views
 │       └── Sources/NavFeatures/
-│           ├── MainTabView.swift              # Root tab navigation
+│           ├── MainTabView.swift              # Root tab navigation + upload pill overlay + prefetch indicator
 │           ├── Discover/
 │           │   ├── DiscoverView.swift         # Swipe card stack + super like
 │           │   └── SentLikesView.swift        # Sent likes with super like sections
@@ -159,14 +189,17 @@ nava/
 │           │   └── MessageRequestDetailView.swift  # Message request accept/decline
 │           ├── Chat/
 │           │   ├── ConversationsView.swift    # Conversation list
-│           │   ├── ChatView.swift             # Chat messages
+│           │   ├── ChatView.swift             # Chat messages + real-time presence
 │           │   ├── CallView.swift             # Voice/video call UI
 │           │   └── MatchProfileDetailView.swift  # Interleaved profile detail from match/discover
 │           ├── Reels/
-│           │   ├── ReelsView.swift            # Vertical reel feed + upload flow + filter carousel
+│           │   ├── ReelsView.swift            # Vertical reel feed + upload flow + filter carousel + music
 │           │   ├── ReelConversationView.swift # Reel DM thread
 │           │   ├── ReelInboxView.swift        # Reel message inbox
-│           │   └── ReelMessageComposer.swift  # Reel message input
+│           │   ├── ReelMessageComposer.swift  # Reel message input
+│           │   ├── ReelActivityListView.swift # Filterable reel activity feed (likes, views, messages)
+│           │   ├── MusicSearchView.swift      # Apple Music catalog search + 30-sec preview
+│           │   └── VideoTrimmerView.swift     # Frame strip timeline trimmer with 30-sec limit
 │           ├── Premium/
 │           │   └── PremiumView.swift          # Subscription UI
 │           ├── Onboarding/
@@ -184,9 +217,10 @@ nava/
 │           │   ├── NotificationPreferencesView.swift  # Push notification settings
 │           │   └── SafetyAppealView.swift     # Appeal moderation decisions
 │           ├── Profile/
-│           │   └── ProfileView.swift          # User profile with My Reels section
+│           │   └── ProfileView.swift          # User profile + My Reels tab + engagement stats + activity
 │           ├── Verification/
 │           │   ├── SelfieVerificationView.swift      # Selfie check + face matching vs profile photos
+│           │   ├── SelfieCameraView.swift             # Live AVCaptureSession front-camera capture
 │           │   ├── StudentVerificationView.swift     # University email OTP (multi-step)
 │           │   ├── StudentIDVerificationView.swift   # Student ID photo upload
 │           │   ├── AlumniVerificationView.swift      # Alumni verification flow
@@ -213,6 +247,8 @@ NavServices  (business logic — depends on NavCore + NavNetworking)
 NavFeatures  (all UI — depends on NavCore + NavNetworking + NavServices)
    ↓
 nava app target  (entry point — depends on all packages)
+   ↓
+NotificationServiceExtension  (rich push — standalone extension target)
 ```
 
 ## Tech Stack
@@ -223,13 +259,17 @@ nava app target  (entry point — depends on all packages)
 | Architecture | SPM modular packages (NavCore → NavNetworking → NavServices → NavFeatures) |
 | State Management | `@StateObject`, `@EnvironmentObject`, `ObservableObject` |
 | Networking | `URLSession` with retry, GraphQL, REST |
-| Real-time | `URLSessionWebSocketTask` (native WebSocket) |
+| Real-time | `URLSessionWebSocketTask` (native WebSocket) with presence tracking |
 | Payments | StoreKit 2 (`Product`, `Transaction`, `AppStore.sync()`) |
 | Auth | OTP via phone number, JWT tokens, Keychain storage |
 | Location | CoreLocation with backend sync |
-| Media | `AVPlayer` for reels, `AVAssetExportSession` + `AVVideoComposition` for video filters, `AsyncImage` for photos |
+| Media | `AVPlayer` for reels, `AVAssetExportSession` + `AVVideoComposition` for video filters, `AVMutableComposition` for audio mixing, `AsyncImage` for photos |
+| Music | MusicKit (`MusicCatalogSearchRequest`) for Apple Music search and preview |
+| Video Editing | `AVAssetImageGenerator` for frame strip thumbnails, `AVAssetExportSession` for trim export (up to 4K) |
 | Image Processing | CoreImage (`CIFilter`) for real-time video filters |
+| Camera | `AVCaptureSession` + `AVCapturePhotoOutput` for in-app selfie capture |
 | Face Detection | Vision framework (`VNDetectFaceRectanglesRequest`, `VNGenerateImageFeaturePrintRequest`) |
+| Push Notifications | `UNUserNotificationCenter` with actionable categories, `UNNotificationServiceExtension` for rich media |
 | Encryption | CryptoKit (AES-GCM) for local cache |
 | Connectivity | `NWPathMonitor` for network status |
 
@@ -239,6 +279,7 @@ This app connects to a [Rust/Axum backend](https://github.com/rohitkarumanchi745
 - REST API + GraphQL + WebSocket endpoints
 - PostgreSQL + Neo4j (dual-write) + Redis
 - Payment processing (Apple StoreKit, Razorpay, Stripe)
+- ArcFace ONNX model for server-side face verification
 - Federated learning for privacy-preserving recommendations
 - LLM-based content labeling pipeline
 
@@ -273,11 +314,17 @@ Configure in `Packages/NavNetworking/Sources/NavNetworking/AppConfig.swift`.
 | Search Suggestions | `/search/students/suggestions` | GET |
 | University Autocomplete | `/universities/search?q=...&limit=8` | GET |
 | Chat | `/ws/chat` (WebSocket), GraphQL queries | WS, POST |
-| Reels | `/reels`, `/reels/feed`, `/reels/user/:id`, `/reels/message` | POST, GET |
+| Messages | `/messages` | POST |
+| Reels | `/reels`, `/reels/feed`, `/reels/feed?scope=local`, `/reels/user/:id` | POST, GET |
+| Reel Messaging | `/reels/message`, `/reels/:reelId/message` | POST |
+| Reel Activity | `/reels/activity?limit=50` | GET |
+| Reel Inbox | `/reels/inbox?limit=...&unread_only=true` | GET |
+| Reel Interactions | `/reels/:reelId/like-creator` | POST |
 | Payments | `/api/payments/verify-apple` | POST |
 | Location | `/location/update` | POST |
 | Verification | `/verify/selfie`, `/student/verify`, `/student/verify-id` | POST |
-| Notifications | `/api/notifications/register-device` | POST |
+| Notifications | `/api/notifications/register-device`, `/api/notifications/unregister-device` | POST |
+| Prefetch | GraphQL `conversation`, `match-detail` | POST |
 | Account | `/account/delete` | POST |
 
 ## License

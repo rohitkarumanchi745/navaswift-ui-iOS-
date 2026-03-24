@@ -16,6 +16,9 @@ struct MusicSearchView: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var previewPlayer: AVPlayer?
     @State private var playingSongID: MusicItemID?
+    @State private var noPreviewAlert = false
+    @State private var selectedSongForTrim: Song?
+    @State private var trimStartSeconds: Double = 0
 
     var body: some View {
         NavigationStack {
@@ -52,6 +55,22 @@ struct MusicSearchView: View {
         .onDisappear {
             previewPlayer?.pause()
             previewPlayer = nil
+        }
+        .alert("No Preview Available", isPresented: $noPreviewAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("This song doesn't have a preview clip. The music metadata will be saved, but no audio will be mixed into your reel.")
+        }
+        .sheet(item: $selectedSongForTrim) { song in
+            MusicStartOffsetSheet(
+                song: song,
+                startSeconds: $trimStartSeconds,
+                onConfirm: { confirmSong(song) },
+                onPreviewAt: { seconds in previewAt(song: song, seconds: seconds) }
+            )
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+            .presentationBackground(AppColors.darkBg)
         }
     }
 
@@ -130,6 +149,7 @@ struct MusicSearchView: View {
                             MusicSearchRow(
                                 song: song,
                                 isPlaying: playingSongID == song.id,
+                                hasPreview: song.previewAssets?.first?.url != nil,
                                 onPreview: { togglePreview(song: song) },
                                 onSelect: { selectSong(song) }
                             )
@@ -199,7 +219,10 @@ struct MusicSearchView: View {
             return
         }
 
-        guard let previewURL = song.previewAssets?.first?.url else { return }
+        guard let previewURL = song.previewAssets?.first?.url else {
+            noPreviewAlert = true
+            return
+        }
 
         previewPlayer?.pause()
         let player = AVPlayer(url: previewURL)
@@ -211,6 +234,13 @@ struct MusicSearchView: View {
     // MARK: - Selection
 
     private func selectSong(_ song: Song) {
+        previewPlayer?.pause()
+        playingSongID = nil
+        trimStartSeconds = 0
+        selectedSongForTrim = song
+    }
+
+    private func confirmSong(_ song: Song) {
         previewPlayer?.pause()
         previewPlayer = nil
 
@@ -234,11 +264,134 @@ struct MusicSearchView: View {
             artworkURL: artworkURLString,
             previewURL: previewURLString,
             durationMs: durationMs,
-            startMs: 0
+            startMs: Int(trimStartSeconds * 1000)
         )
 
+        selectedSongForTrim = nil
         onSelect(music)
         dismiss()
+    }
+
+    private func previewAt(song: Song, seconds: Double) {
+        guard let previewURL = song.previewAssets?.first?.url else { return }
+        previewPlayer?.pause()
+        let player = AVPlayer(url: previewURL)
+        previewPlayer = player
+        let seekTime = CMTime(seconds: seconds, preferredTimescale: 600)
+        player.seek(to: seekTime) { _ in
+            player.play()
+        }
+    }
+}
+
+// MARK: - Song: Identifiable for .sheet(item:)
+
+extension Song: @retroactive Identifiable {}
+
+// MARK: - Music Start Offset Sheet
+
+private struct MusicStartOffsetSheet: View {
+    let song: Song
+    @Binding var startSeconds: Double
+    let onConfirm: () -> Void
+    let onPreviewAt: (Double) -> Void
+
+    private var maxStartSeconds: Double {
+        guard let duration = song.duration else { return 30 }
+        return max(0, duration - 5) // leave at least 5s of audio
+    }
+
+    var body: some View {
+        VStack(spacing: 20) {
+            // Song header
+            HStack(spacing: 12) {
+                if let artwork = song.artwork {
+                    ArtworkImage(artwork, width: 56)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                } else {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Color.gray.opacity(0.3))
+                        .frame(width: 56, height: 56)
+                        .overlay {
+                            Image(systemName: "music.note")
+                                .foregroundColor(.white.opacity(0.5))
+                        }
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(song.title)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+                    Text(song.artistName)
+                        .font(.system(size: 14))
+                        .foregroundColor(.white.opacity(0.6))
+                        .lineLimit(1)
+                }
+                Spacer()
+            }
+
+            // Start offset slider
+            VStack(spacing: 8) {
+                Text("Start at")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.white.opacity(0.5))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                HStack(spacing: 12) {
+                    Text(formatTime(startSeconds))
+                        .font(.system(size: 14, weight: .medium, design: .monospaced))
+                        .foregroundColor(AppColors.purpleAccent)
+                        .frame(width: 50, alignment: .leading)
+
+                    Slider(value: $startSeconds, in: 0...maxStartSeconds, step: 0.5)
+                        .tint(AppColors.purpleAccent)
+
+                    if let duration = song.duration {
+                        Text(formatTime(duration))
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.4))
+                            .frame(width: 50, alignment: .trailing)
+                    }
+                }
+
+                // Preview from offset button
+                if song.previewAssets?.first?.url != nil {
+                    Button {
+                        onPreviewAt(startSeconds)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 11))
+                            Text("Preview from \(formatTime(startSeconds))")
+                                .font(.system(size: 13, weight: .medium))
+                        }
+                        .foregroundColor(AppColors.purpleAccent)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(14)
+            .background(AppColors.darkCard)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+
+            // Confirm button
+            Button(action: onConfirm) {
+                Text("Use This Song")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(AppColors.purpleAccent)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+        }
+        .padding(20)
+    }
+
+    private func formatTime(_ seconds: Double) -> String {
+        let s = Int(seconds)
+        return String(format: "%d:%02d", s / 60, s % 60)
     }
 }
 
@@ -247,6 +400,7 @@ struct MusicSearchView: View {
 private struct MusicSearchRow: View {
     let song: Song
     let isPlaying: Bool
+    let hasPreview: Bool
     let onPreview: () -> Void
     let onSelect: () -> Void
 
@@ -276,10 +430,17 @@ private struct MusicSearchRow: View {
                         .font(.system(size: 15, weight: .medium))
                         .foregroundColor(.white)
                         .lineLimit(1)
-                    Text(song.artistName)
-                        .font(.system(size: 13))
-                        .foregroundColor(.white.opacity(0.6))
-                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        Text(song.artistName)
+                            .font(.system(size: 13))
+                            .foregroundColor(.white.opacity(0.6))
+                            .lineLimit(1)
+                        if !hasPreview {
+                            Text("· No preview")
+                                .font(.system(size: 11))
+                                .foregroundColor(.orange.opacity(0.7))
+                        }
+                    }
                 }
 
                 Spacer()
@@ -295,7 +456,10 @@ private struct MusicSearchRow: View {
                 Button(action: onPreview) {
                     Image(systemName: isPlaying ? "stop.circle.fill" : "play.circle.fill")
                         .font(.system(size: 28))
-                        .foregroundColor(isPlaying ? AppColors.purpleAccent : .white.opacity(0.6))
+                        .foregroundColor(
+                            isPlaying ? AppColors.purpleAccent :
+                            hasPreview ? .white.opacity(0.6) : .white.opacity(0.2)
+                        )
                 }
                 .buttonStyle(.plain)
             }

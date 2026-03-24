@@ -253,7 +253,8 @@ public class ReelUploadService: ObservableObject {
                         videoURL: uploadVideoURL,
                         musicURL: previewURL,
                         musicVolume: musicVolume,
-                        videoVolume: 1.0 - musicVolume
+                        videoVolume: 1.0 - musicVolume,
+                        musicStartSeconds: Double(music.startMs ?? 0) / 1000.0
                     )
                 }
 
@@ -523,11 +524,13 @@ public class ReelUploadService: ObservableObject {
 
     /// Downloads the music preview and mixes it into the video file using AVMutableComposition.
     /// Returns the URL of the new video with music baked in.
+    /// - Parameter musicStartSeconds: The offset in seconds to start playing the music from.
     private func mixAudioIntoVideo(
         videoURL: URL,
         musicURL: URL,
         musicVolume: Float,
-        videoVolume: Float
+        videoVolume: Float,
+        musicStartSeconds: Double = 0
     ) async throws -> URL {
         NavLog.info("Audio mix: downloading music preview…", category: .general)
 
@@ -601,6 +604,36 @@ public class ReelUploadService: ObservableObject {
         let videoSeconds = CMTimeGetSeconds(videoDuration)
         let musicSeconds = CMTimeGetSeconds(audioDuration)
 
+        // Guard against zero-duration audio which would cause an infinite loop
+        guard musicSeconds > 0 else {
+            NavLog.warning("Audio mix: music preview has zero duration, skipping mix", category: .general)
+            try? FileManager.default.removeItem(at: audioLocalURL)
+            return videoURL
+        }
+
+        // Calculate the time range within the music to use (respecting startMs offset)
+        let clampedStartSeconds = min(musicStartSeconds, musicSeconds - 0.1)
+        let effectiveStartTime = clampedStartSeconds > 0
+            ? CMTime(seconds: clampedStartSeconds, preferredTimescale: 600)
+            : CMTime.zero
+        let availableMusicFromStart = CMTimeSubtract(audioDuration, effectiveStartTime)
+        let useOffset = CMTimeGetSeconds(availableMusicFromStart) > 0
+
+        if useOffset && clampedStartSeconds > 0 {
+            // First insertion: from startMs offset to end of music track
+            let remaining = CMTimeSubtract(videoDuration, insertionTime)
+            let firstInsertDuration = CMTimeMinimum(availableMusicFromStart, remaining)
+            try compositionMusicTrack.insertTimeRange(
+                CMTimeRange(start: effectiveStartTime, duration: firstInsertDuration),
+                of: musicTrack,
+                at: insertionTime
+            )
+            insertionTime = CMTimeAdd(insertionTime, firstInsertDuration)
+        } else if clampedStartSeconds > 0 {
+            NavLog.warning("Audio mix: music start offset exceeds duration, using full track from beginning", category: .general)
+        }
+
+        // Subsequent insertions: loop full track from beginning if video is longer
         while CMTimeGetSeconds(insertionTime) < videoSeconds {
             let remaining = CMTimeSubtract(videoDuration, insertionTime)
             let insertDuration = CMTimeMinimum(audioDuration, remaining)
@@ -612,7 +645,7 @@ public class ReelUploadService: ObservableObject {
             insertionTime = CMTimeAdd(insertionTime, insertDuration)
         }
 
-        NavLog.info("Audio mix: composition built (video=\(String(format: "%.1f", videoSeconds))s, music=\(String(format: "%.1f", musicSeconds))s, musicVol=\(musicVolume))", category: .general)
+        NavLog.info("Audio mix: composition built (video=\(String(format: "%.1f", videoSeconds))s, music=\(String(format: "%.1f", musicSeconds))s, startOffset=\(String(format: "%.1f", musicStartSeconds))s, musicVol=\(musicVolume))", category: .general)
 
         // 4. Audio mix parameters — control volume levels
         let audioMix = AVMutableAudioMix()
@@ -636,12 +669,13 @@ public class ReelUploadService: ObservableObject {
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("mixed_\(UUID().uuidString).mp4")
 
-        // Use Passthrough to avoid re-encoding the video — just mux the audio mix in.
-        // Falls back to MediumQuality if Passthrough isn't compatible.
+        // AVAssetExportPresetPassthrough cannot apply AVMutableAudioMix (volume adjustments
+        // are silently ignored), so we must use a re-encoding preset to honor volume levels.
+        // Prefer HighestQuality to preserve video fidelity; fall back to MediumQuality.
         let preset: String = {
             let compatible = AVAssetExportSession.exportPresets(compatibleWith: composition)
-            if compatible.contains(AVAssetExportPresetPassthrough) {
-                return AVAssetExportPresetPassthrough
+            if compatible.contains(AVAssetExportPresetHighestQuality) {
+                return AVAssetExportPresetHighestQuality
             }
             return AVAssetExportPresetMediumQuality
         }()

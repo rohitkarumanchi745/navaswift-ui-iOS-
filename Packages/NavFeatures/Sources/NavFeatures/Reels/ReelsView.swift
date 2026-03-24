@@ -784,14 +784,37 @@ struct ReelCard: View {
                             }
 
                             if let music = reel.music {
-                                HStack(spacing: 5) {
-                                    Image(systemName: "music.note")
-                                        .font(.system(size: 11))
+                                HStack(spacing: 8) {
+                                    // Rotating album artwork
+                                    if let artworkURLString = music.artworkURL,
+                                       let artworkURL = URL(string: artworkURLString) {
+                                        AsyncImage(url: artworkURL) { image in
+                                            image.resizable().scaledToFill()
+                                        } placeholder: {
+                                            Image(systemName: "music.note")
+                                                .font(.system(size: 10))
+                                                .foregroundColor(.white.opacity(0.5))
+                                        }
+                                        .frame(width: 28, height: 28)
+                                        .clipShape(Circle())
+                                        .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 0.5))
+                                        .rotationEffect(.degrees(isActive ? 360 : 0))
+                                        .animation(
+                                            isActive ? .linear(duration: 4).repeatForever(autoreverses: false) : .default,
+                                            value: isActive
+                                        )
+                                    } else {
+                                        Image(systemName: "music.note")
+                                            .font(.system(size: 11))
+                                            .foregroundColor(.white.opacity(0.8))
+                                    }
+
+                                    // Scrolling marquee text
                                     Text("\(music.title) — \(music.artist)")
                                         .font(.system(size: 12, weight: .medium))
                                         .lineLimit(1)
+                                        .foregroundColor(.white.opacity(0.8))
                                 }
-                                .foregroundColor(.white.opacity(0.8))
                                 .shadow(color: .black.opacity(0.3), radius: 3)
                             }
                         }
