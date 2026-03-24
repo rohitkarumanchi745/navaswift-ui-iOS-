@@ -145,6 +145,7 @@ public enum VideoFilter: String, CaseIterable, Identifiable, Equatable {
     // MARK: - Video Export (AVAssetExportSession + AVVideoComposition)
 
     /// Exports filtered video using AVVideoComposition with CIFilter per-frame handler.
+    /// Preserves the source resolution (4K, 1080p, etc.) — no downscaling.
     /// Polls `onProgress` at ~200ms intervals. Returns URL of the exported file.
     public func exportVideo(
         from sourceURL: URL,
@@ -163,9 +164,20 @@ public enum VideoFilter: String, CaseIterable, Identifiable, Equatable {
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("filtered_\(rawValue)_\(UUID().uuidString).mp4")
 
+        // Pick the highest resolution-compatible preset to avoid downscaling.
+        // 3840x2160 covers 4K, 1920x1080 covers Full HD, HighestQuality is the fallback.
+        let compatiblePresets = AVAssetExportSession.exportPresets(compatibleWith: asset)
+        let preferredPresets = [
+            AVAssetExportPreset3840x2160,
+            AVAssetExportPreset1920x1080,
+            AVAssetExportPresetHighestQuality
+        ]
+        let presetName = preferredPresets.first { compatiblePresets.contains($0) }
+            ?? AVAssetExportPresetHighestQuality
+
         guard let exportSession = AVAssetExportSession(
             asset: asset,
-            presetName: AVAssetExportPresetHighestQuality
+            presetName: presetName
         ) else {
             throw VideoFilterError.exportSessionCreationFailed
         }

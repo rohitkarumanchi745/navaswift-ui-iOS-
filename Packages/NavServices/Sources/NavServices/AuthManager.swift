@@ -102,6 +102,9 @@ public class AuthManager: ObservableObject {
     @Published public var token: String?
     @Published public var isRefreshingProfile = false
 
+    /// Called during logout so the app layer can clean up (e.g. unregister push token, clear badge).
+    public var onLogout: (() -> Void)?
+
     private let tokenKey = "nava_token"
     private let refreshTokenKey = "nava_refresh_token"
     private let phoneKey = "nava_phone"
@@ -113,9 +116,7 @@ public class AuthManager: ObservableObject {
     }
 
     private func bootstrapAuth() {
-        guard let storedToken = KeychainHelper.load(key: tokenKey),
-              !storedToken.hasPrefix("mock-token"),
-              !storedToken.hasPrefix("demo-token") else {
+        guard let storedToken = KeychainHelper.load(key: tokenKey) else {
             NavLog.debug("bootstrapAuth: no valid token, setting unauthenticated", category: .auth)
             status = .unauthenticated
             return
@@ -148,7 +149,6 @@ public class AuthManager: ObservableObject {
 
     public func ensureValidToken() async -> Bool {
         guard let currentToken = token else { return false }
-        if currentToken.hasPrefix("demo-token") { return true }
 
         if JWTHelper.isExpired(currentToken) {
             NavLog.info("Token expired, attempting refresh", category: .auth)
@@ -354,6 +354,7 @@ public class AuthManager: ObservableObject {
 
     public func logout() {
         NavLog.info("Logging out", category: .auth)
+        onLogout?()
         status = .unauthenticated
         user = nil
         token = nil
@@ -365,50 +366,4 @@ public class AuthManager: ObservableObject {
         LocalCache.shared.rotateKey()
     }
 
-    // MARK: - Demo Mode
-    public func loginWithDemoUser() {
-        let demoUser = UserProfile(
-            id: "demo-user-1",
-            name: "Rohit",
-            phoneNumber: "+919876543210",
-            dob: "1998-06-15",
-            age: 27,
-            gender: "male",
-            bio: "Software developer who loves building apps. Coffee enthusiast and weekend hiker. Currently exploring the startup scene in Hyderabad and always down for a good biryani debate.",
-            location: "Hyderabad",
-            professionCategory: "tech",
-            professionTitle: "iOS Developer",
-            interests: ["Tech", "Coffee", "Hiking", "Music", "Travel"],
-            photos: [
-                "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=800&q=80",
-                "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=800&q=80",
-                "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=800&q=80"
-            ],
-            isProfileComplete: true,
-            isVerified: true,
-            isStudentVerified: true,
-            studentVerificationMethod: "email",
-            isAlumniVerified: true,
-            heightCm: 178,
-            languages: ["Telugu", "English", "Hindi"],
-            lookingFor: "long_term",
-            university: "IIT Bombay",
-            universityLocation: "Mumbai, India",
-            study: "Computer Science"
-        )
-        user = demoUser
-        token = "demo-token"
-        status = .authenticated
-    }
-
-    public func loginWithDemoNewUser() {
-        let newUser = UserProfile(
-            id: "demo-user-2",
-            name: nil,
-            isProfileComplete: false
-        )
-        user = newUser
-        token = "demo-token"
-        status = .authenticated
-    }
 }

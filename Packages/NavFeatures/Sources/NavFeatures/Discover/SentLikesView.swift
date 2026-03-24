@@ -195,13 +195,13 @@ struct SentLikesView: View {
                         likedAt: formatTimestamp(item["likedAt"] as? String) ?? ""
                     )
                 }
-                sentLikes = fetched.isEmpty ? SentLikeProfile.demos : fetched
+                sentLikes = fetched
             } else {
-                sentLikes = SentLikeProfile.demos
+                sentLikes = []
             }
         } catch {
             if sentLikes.isEmpty {
-                sentLikes = SentLikeProfile.demos
+                sentLikes = []
             }
         }
         isLoading = false
@@ -228,32 +228,6 @@ struct SentLikeProfile: Identifiable {
     let isSuperLike: Bool
     let likedAt: String
 
-    static let demos: [SentLikeProfile] = [
-        SentLikeProfile(id: "sl1", name: "Priya", age: 24,
-                        photo: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400",
-                        isSuperLike: true, likedAt: "2h"),
-        SentLikeProfile(id: "sl2", name: "Sneha", age: 26,
-                        photo: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400",
-                        isSuperLike: false, likedAt: "5h"),
-        SentLikeProfile(id: "sl3", name: "Ananya", age: 23,
-                        photo: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=400",
-                        isSuperLike: false, likedAt: "1d"),
-        SentLikeProfile(id: "sl4", name: "Meera", age: 27,
-                        photo: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400",
-                        isSuperLike: true, likedAt: "2d"),
-        SentLikeProfile(id: "sl5", name: "Kavya", age: 24,
-                        photo: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=400",
-                        isSuperLike: false, likedAt: "3d"),
-        SentLikeProfile(id: "sl6", name: "Diya", age: 26,
-                        photo: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400",
-                        isSuperLike: true, likedAt: "4h"),
-        SentLikeProfile(id: "sl7", name: "Rohan", age: 28,
-                        photo: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400",
-                        isSuperLike: false, likedAt: "1d"),
-        SentLikeProfile(id: "sl8", name: "Aditya", age: 27,
-                        photo: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400",
-                        isSuperLike: false, likedAt: "3d"),
-    ]
 }
 
 // MARK: - Card

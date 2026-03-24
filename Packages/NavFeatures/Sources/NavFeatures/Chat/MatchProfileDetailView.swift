@@ -440,12 +440,13 @@ struct MatchProfileDetailView: View {
                     caption: r.caption ?? "",
                     likes: r.like_count ?? 0, isLiked: false,
                     isVerified: profile?.isVerified ?? false,
-                    location: profile?.location ?? ""
+                    location: profile?.location ?? "",
+                    music: nil
                 )
             }
         } catch {
             // For demo users, filter demo reels by userId
-            userReels = Reel.demos.filter { $0.userId == userId }
+            userReels = []
         }
 
         // Fetch global feed reels
@@ -472,10 +473,11 @@ struct MatchProfileDetailView: View {
                      userAge: r.creator_age ?? 0, userPhoto: r.creator_photo ?? "",
                      videoUrl: r.video_url ?? "", caption: r.caption ?? "",
                      likes: r.like_count ?? 0, isLiked: false,
-                     isVerified: r.creator_verified ?? false, location: r.creator_location ?? "")
+                     isVerified: r.creator_verified ?? false, location: r.creator_location ?? "",
+                     music: nil)
             }
         } catch {
-            feedReels = Reel.demos
+            feedReels = []
         }
 
         // Combine: user's reels first, then feed reels (deduped)
@@ -625,6 +627,7 @@ struct ProfileReelFeedView: View {
     let userName: String
 
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var pool = ReelPlayerPool()
     @State private var reels: [Reel] = []
     @State private var currentIndex = 0
     @State private var feedScope: ReelFeedScope = .global
@@ -655,6 +658,7 @@ struct ProfileReelFeedView: View {
                                     set: { reels[index] = $0 }
                                 ),
                                 isActive: index == currentIndex,
+                                player: pool.player(for: index),
                                 onProfileTap: nil
                             )
                             .frame(width: geo.size.width, height: geo.size.height)
@@ -714,8 +718,13 @@ struct ProfileReelFeedView: View {
         }
         .task {
             reels = initialReels
-            currentIndex = min(startIndex, reels.count - 1)
+            currentIndex = min(startIndex, max(0, reels.count - 1))
+            pool.activate(currentIndex: currentIndex, urls: reels.map { $0.videoUrl })
         }
+        .onChange(of: currentIndex) { _, idx in
+            pool.activate(currentIndex: idx, urls: reels.map { $0.videoUrl })
+        }
+        .onDisappear { pool.pauseAll() }
     }
 
     private func fetchFeedReels() async {
@@ -743,21 +752,17 @@ struct ProfileReelFeedView: View {
                      userAge: r.creator_age ?? 0, userPhoto: r.creator_photo ?? "",
                      videoUrl: r.video_url ?? "", caption: r.caption ?? "",
                      likes: r.like_count ?? 0, isLiked: false,
-                     isVerified: r.creator_verified ?? false, location: r.creator_location ?? "")
+                     isVerified: r.creator_verified ?? false, location: r.creator_location ?? "",
+                     music: nil)
             }
             reels = fetched.isEmpty ? filteredDemos : fetched
         } catch {
             reels = filteredDemos
         }
         isLoading = false
+        pool.reset()
+        pool.activate(currentIndex: 0, urls: reels.map { $0.videoUrl })
     }
 
-    private var filteredDemos: [Reel] {
-        if feedScope == .local {
-            let localCities = ["Hyderabad", "Vizag"]
-            let local = Reel.demos.filter { localCities.contains($0.location) }
-            return local.isEmpty ? Reel.demos : local
-        }
-        return Reel.demos
-    }
+    private var filteredDemos: [Reel] { [] }
 }

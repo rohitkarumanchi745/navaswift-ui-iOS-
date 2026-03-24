@@ -51,41 +51,103 @@ struct Reel: Identifiable {
     var isLiked: Bool
     let isVerified: Bool
     let location: String
+    let music: ReelMusic?
 }
 
-// MARK: - Video Player Manager
-class VideoPlayerManager: ObservableObject {
-    @Published var player: AVPlayer?
-    private var currentURL: String?
+// MARK: - Reel Player Pool (Instagram-style, 3-slot circular buffer)
+/// Manages 3 AVPlayer instances reused across all reel cards.
+/// Pre-buffers the previous, current, and next reel simultaneously.
+/// Swiping one card only loads 1 new item — the other two stay buffered.
+final class ReelPlayerPool: ObservableObject {
+    private static let poolSize = 3
+    private let players: [AVPlayer]
+    private var loadedURLs: [String?]
+    private var loopObservers: [NSObjectProtocol?]
+    /// Slot index of the currently active reel (used to gate loop restarts).
+    private var activeSlot: Int = 0
+    @Published var isMuted: Bool = false
 
-    func play(url: String) {
-        guard url != currentURL, let videoURL = URL(string: url) else {
-            player?.play()
-            return
-        }
-        currentURL = url
-        player = AVPlayer(url: videoURL)
-        player?.isMuted = false
-        player?.play()
-
-        NotificationCenter.default.addObserver(
-            forName: .AVPlayerItemDidPlayToEndTime,
-            object: player?.currentItem,
-            queue: .main
-        ) { [weak self] _ in
-            self?.player?.seek(to: .zero)
-            self?.player?.play()
+    init() {
+        players = (0..<Self.poolSize).map { _ in AVPlayer() }
+        loadedURLs = Array(repeating: nil, count: Self.poolSize)
+        loopObservers = Array(repeating: nil, count: Self.poolSize)
+        for p in players {
+            p.isMuted = false
+            p.automaticallyWaitsToMinimizeStalling = true
         }
     }
 
-    func pause() {
-        player?.pause()
+    func toggleMute() {
+        isMuted.toggle()
+        for p in players { p.isMuted = isMuted }
     }
 
-    func stop() {
-        player?.pause()
-        player = nil
-        currentURL = nil
+    /// Call whenever the active reel index changes.
+    /// Loads items for [index-1, index, index+1] and plays the current one.
+    func activate(currentIndex: Int, urls: [String]) {
+        guard !urls.isEmpty else { return }
+        activeSlot = currentIndex % Self.poolSize
+        let lo = max(0, currentIndex - 1)
+        let hi = min(urls.count - 1, currentIndex + 1)
+
+        for idx in lo...hi {
+            let slot = idx % Self.poolSize
+            let url = urls[idx]
+            if loadedURLs[slot] != url {
+                loadedURLs[slot] = url
+                if let obs = loopObservers[slot] {
+                    NotificationCenter.default.removeObserver(obs)
+                    loopObservers[slot] = nil
+                }
+                if let videoURL = AppConfig.resolveMediaURL(url) {
+                    let item = AVPlayerItem(url: videoURL)
+                    item.preferredForwardBufferDuration = 3
+                    players[slot].replaceCurrentItem(with: item)
+                    let capturedSlot = slot
+                    loopObservers[slot] = NotificationCenter.default.addObserver(
+                        forName: .AVPlayerItemDidPlayToEndTime,
+                        object: item,
+                        queue: .main
+                    ) { [weak self] _ in
+                        guard let self, self.activeSlot == capturedSlot else { return }
+                        self.players[capturedSlot].seek(to: .zero)
+                        self.players[capturedSlot].play()
+                    }
+                }
+            }
+        }
+
+        // Play current slot, pause others
+        let activeSlots = Set((lo...hi).map { $0 % Self.poolSize })
+        for idx in lo...hi {
+            let slot = idx % Self.poolSize
+            if idx == currentIndex {
+                players[slot].seek(to: .zero)
+                players[slot].play()
+            } else {
+                players[slot].pause()
+            }
+        }
+        for slot in 0..<Self.poolSize where !activeSlots.contains(slot) {
+            players[slot].pause()
+        }
+    }
+
+    /// Returns the shared AVPlayer for the given reel index.
+    func player(for index: Int) -> AVPlayer { players[index % Self.poolSize] }
+
+    func pauseAll() { players.forEach { $0.pause() } }
+
+    func reset() {
+        for slot in 0..<Self.poolSize {
+            players[slot].pause()
+            players[slot].replaceCurrentItem(with: nil)
+            loadedURLs[slot] = nil
+            if let obs = loopObservers[slot] {
+                NotificationCenter.default.removeObserver(obs)
+                loopObservers[slot] = nil
+            }
+        }
     }
 }
 
@@ -105,10 +167,10 @@ private struct DraggableTabBar: View {
     private let handleHeight: CGFloat = 20
 
     private let tabs: [(icon: String, label: String, tag: Int)] = [
-        ("flame.fill", "Discover", 0),
+        ("play.rectangle.fill", "Discover", 0),
         ("heart.fill", "Likes", 1),
         ("message.fill", "Chat", 2),
-        ("play.rectangle.fill", "Reels", 3),
+        ("magnifyingglass", "Search", 3),
         ("person.fill", "Profile", 4),
     ]
 
@@ -130,8 +192,8 @@ private struct DraggableTabBar: View {
             HStack(spacing: 0) {
                 ForEach(tabs, id: \.tag) { tab in
                     Button {
-                        if tab.tag == 3 {
-                            // Already on Reels, just hide the bar
+                        if tab.tag == 0 {
+                            // Already on Discover/Reels, just hide the bar
                             withAnimation(.easeOut(duration: 0.25)) { isVisible = false }
                         } else {
                             selectedTab = tab.tag
@@ -143,7 +205,7 @@ private struct DraggableTabBar: View {
                             Text(tab.label)
                                 .font(.system(size: 10))
                         }
-                        .foregroundColor(tab.tag == 3 ? AppColors.primary : .white.opacity(0.7))
+                        .foregroundColor(tab.tag == 0 ? AppColors.primary : .white.opacity(0.7))
                         .frame(maxWidth: .infinity)
                     }
                 }
@@ -189,7 +251,8 @@ struct ReelsView: View {
     @EnvironmentObject var auth: AuthManager
     @EnvironmentObject var storeKit: StoreKitManager
     @EnvironmentObject var uploadService: ReelUploadService
-    @State private var currentIndex = 0
+    @StateObject private var pool = ReelPlayerPool()
+    @State private var currentIndex: Int? = 0
     @State private var reels: [Reel] = []
     @State private var showUploadSheet = false
     @State private var isLoading = true
@@ -226,18 +289,25 @@ struct ReelsView: View {
                 emptyState
             } else {
                 GeometryReader { geo in
-                    TabView(selection: $currentIndex) {
-                        ForEach(Array(reels.enumerated()), id: \.element.id) { index, reel in
-                            ReelCard(
-                                reel: binding(for: index),
-                                isActive: index == currentIndex,
-                                onProfileTap: { handleProfileTap(reel: reels[index]) }
-                            )
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .tag(index)
+                    ScrollView(.vertical, showsIndicators: false) {
+                        LazyVStack(spacing: 0) {
+                            ForEach(Array(reels.enumerated()), id: \.element.id) { index, reel in
+                                ReelCard(
+                                    reel: binding(for: index),
+                                    isActive: index == currentIndex,
+                                    player: pool.player(for: index),
+                                    isMuted: pool.isMuted,
+                                    onMuteToggle: { pool.toggleMute() },
+                                    onProfileTap: { handleProfileTap(reel: reels[index]) }
+                                )
+                                .frame(width: geo.size.width, height: geo.size.height)
+                                .id(index)
+                            }
                         }
+                        .scrollTargetLayout()
                     }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .scrollTargetBehavior(.paging)
+                    .scrollPosition(id: $currentIndex)
                     .frame(width: geo.size.width, height: geo.size.height)
                 }
                 .ignoresSafeArea()
@@ -356,9 +426,15 @@ struct ReelsView: View {
         .onReceive(NotificationCenter.default.publisher(for: ReelUploadService.didFinishUploadNotification)) { _ in
             Task { await fetchReels() }
         }
+        .onChange(of: currentIndex) { _, idx in
+            pool.activate(currentIndex: idx ?? 0, urls: reels.map { $0.videoUrl })
+        }
         .onChange(of: feedScope) { _, _ in
             currentIndex = 0
+            pool.reset()
         }
+        .onDisappear { pool.pauseAll() }
+        .onAppear { pool.activate(currentIndex: currentIndex ?? 0, urls: reels.map { $0.videoUrl }) }
     }
 
     private func binding(for index: Int) -> Binding<Reel> {
@@ -388,6 +464,7 @@ struct ReelsView: View {
         do {
             struct ReelFeedItem: Codable {
                 let id: Int; let user_id: Int; let video_url: String?
+                let hls_url: String?; let hls_state: String?
                 let thumbnail_url: String?; let duration_sec: Int?
                 let caption: String?; let category: String?
                 let like_count: Int?; let view_count: Int?
@@ -395,6 +472,7 @@ struct ReelsView: View {
                 let creator_name: String?; let creator_age: Int?
                 let creator_photo: String?; let creator_verified: Bool?
                 let creator_location: String?
+                let music: ReelMusic?
             }
             struct ReelFeedResponse: Codable {
                 let reels: [ReelFeedItem]
@@ -408,9 +486,11 @@ struct ReelsView: View {
                 .map { r in
                     Reel(id: "\(r.id)", userId: "\(r.user_id)", userName: r.creator_name ?? "Unknown",
                          userAge: r.creator_age ?? 0, userPhoto: r.creator_photo ?? "",
-                         videoUrl: r.video_url ?? "", caption: r.caption ?? "",
+                         videoUrl: (r.hls_state == "ready" ? r.hls_url : nil) ?? r.video_url ?? "",
+                         caption: r.caption ?? "",
                          likes: r.like_count ?? 0, isLiked: false,
-                         isVerified: r.creator_verified ?? false, location: r.creator_location ?? "")
+                         isVerified: r.creator_verified ?? false, location: r.creator_location ?? "",
+                         music: r.music)
                 }
             reels = fetched.isEmpty ? filteredDemos : fetched
         } catch {
@@ -419,17 +499,10 @@ struct ReelsView: View {
             }
         }
         isLoading = false
+        pool.activate(currentIndex: 0, urls: reels.map { $0.videoUrl })
     }
 
-    /// Filter demo reels by location for "Local" scope demo
-    private var filteredDemos: [Reel] {
-        if feedScope == .local {
-            let localCities = ["Hyderabad", "Vizag"]
-            let local = Reel.demos.filter { localCities.contains($0.location) }
-            return local.isEmpty ? Reel.demos : local
-        }
-        return Reel.demos
-    }
+    private var filteredDemos: [Reel] { [] }
 
     private var emptyState: some View {
         VStack(spacing: 20) {
@@ -453,9 +526,10 @@ struct UserReelsView: View {
     let userPhoto: String
     @EnvironmentObject var storeKit: StoreKitManager
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var pool = ReelPlayerPool()
     @State private var userReels: [Reel] = []
     @State private var isLoading = true
-    @State private var currentIndex = 0
+    @State private var currentIndex: Int? = 0
 
     var body: some View {
         NavigationStack {
@@ -497,20 +571,31 @@ struct UserReelsView: View {
                             .foregroundColor(.gray)
                     }
                 } else {
-                    TabView(selection: $currentIndex) {
-                        ForEach(Array(userReels.enumerated()), id: \.element.id) { index, reel in
-                            ReelCard(
-                                reel: Binding(
-                                    get: { userReels[index] },
-                                    set: { userReels[index] = $0 }
-                                ),
-                                isActive: index == currentIndex,
-                                onProfileTap: nil
-                            )
-                            .tag(index)
+                    GeometryReader { geo in
+                        ScrollView(.vertical, showsIndicators: false) {
+                            LazyVStack(spacing: 0) {
+                                ForEach(Array(userReels.enumerated()), id: \.element.id) { index, reel in
+                                    ReelCard(
+                                        reel: Binding(
+                                            get: { userReels[index] },
+                                            set: { userReels[index] = $0 }
+                                        ),
+                                        isActive: index == currentIndex,
+                                        player: pool.player(for: index),
+                                        isMuted: pool.isMuted,
+                                        onMuteToggle: { pool.toggleMute() },
+                                        onProfileTap: nil
+                                    )
+                                    .frame(width: geo.size.width, height: geo.size.height)
+                                    .id(index)
+                                }
+                            }
+                            .scrollTargetLayout()
                         }
+                        .scrollTargetBehavior(.paging)
+                        .scrollPosition(id: $currentIndex)
+                        .frame(width: geo.size.width, height: geo.size.height)
                     }
-                    .tabViewStyle(.page(indexDisplayMode: .never))
                     .ignoresSafeArea()
                 }
 
@@ -541,7 +626,7 @@ struct UserReelsView: View {
                         Spacer()
 
                         if !userReels.isEmpty {
-                            Text("\(currentIndex + 1)/\(userReels.count)")
+                            Text("\((currentIndex ?? 0) + 1)/\(userReels.count)")
                                 .font(.caption)
                                 .foregroundColor(.white.opacity(0.7))
                                 .padding(.horizontal, 10)
@@ -556,6 +641,10 @@ struct UserReelsView: View {
             }
             .navigationBarHidden(true)
             .task { await fetchUserReels() }
+            .onChange(of: currentIndex) { _, idx in
+                pool.activate(currentIndex: idx ?? 0, urls: userReels.map { $0.videoUrl })
+            }
+            .onDisappear { pool.pauseAll() }
         }
     }
 
@@ -564,7 +653,9 @@ struct UserReelsView: View {
         do {
             struct ReelItem: Codable {
                 let id: Int; let video_url: String?; let caption: String?
+                let hls_url: String?; let hls_state: String?
                 let like_count: Int?; let view_count: Int?
+                let music: ReelMusic?
             }
             struct ReelResponse: Codable { let reels: [ReelItem] }
             let response: ReelResponse = try await APIService.shared.get(
@@ -575,17 +666,18 @@ struct UserReelsView: View {
                     id: "\(r.id)", userId: userId,
                     userName: userName, userAge: 0,
                     userPhoto: userPhoto,
-                    videoUrl: r.video_url ?? "",
+                    videoUrl: (r.hls_state == "ready" ? r.hls_url : nil) ?? r.video_url ?? "",
                     caption: r.caption ?? "",
                     likes: r.like_count ?? 0, isLiked: false,
-                    isVerified: false, location: ""
+                    isVerified: false, location: "",
+                    music: r.music
                 )
             }
         } catch {
-            // For demo users, filter demo reels by userId
-            userReels = Reel.demos.filter { $0.userId == userId }
+            userReels = []
         }
         isLoading = false
+        pool.activate(currentIndex: 0, urls: userReels.map { $0.videoUrl })
     }
 }
 
@@ -593,22 +685,24 @@ struct UserReelsView: View {
 struct ReelCard: View {
     @Binding var reel: Reel
     let isActive: Bool
+    let player: AVPlayer          // Injected from ReelPlayerPool
+    var isMuted: Bool = false
+    var onMuteToggle: (() -> Void)?
     var onProfileTap: (() -> Void)?
-    @StateObject private var playerManager = VideoPlayerManager()
     @State private var showHeart = false
     @State private var showMessageSheet = false
     @State private var showLikeCreator = false
+    @State private var isPaused = false
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
                 Color.black
 
-                if !reel.videoUrl.isEmpty, URL(string: reel.videoUrl) != nil {
-                    FullScreenVideoPlayer(player: playerManager.player)
+                if !reel.videoUrl.isEmpty, AppConfig.resolveMediaURL(reel.videoUrl) != nil {
+                    FullScreenVideoPlayer(player: player)
                         .frame(width: geo.size.width, height: geo.size.height)
                         .clipped()
-                        .onAppear { if isActive { playerManager.play(url: reel.videoUrl) } }
                 } else {
                     LinearGradient(colors: [Color(hex: "1A1A2E"), Color(hex: "16213E"), Color(hex: "0F3460")],
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
@@ -618,74 +712,167 @@ struct ReelCard: View {
                     }
                 }
 
+                // Pause indicator
+                if isPaused {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 56))
+                        .foregroundColor(.white.opacity(0.7))
+                        .shadow(color: .black.opacity(0.5), radius: 10)
+                        .transition(.opacity)
+                }
+
+                // Double-tap heart animation
                 if showHeart {
-                    Image(systemName: "heart.fill").font(.system(size: 80)).foregroundColor(.red)
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 100))
+                        .foregroundColor(.white)
+                        .shadow(color: .red.opacity(0.6), radius: 12)
                         .transition(.scale.combined(with: .opacity))
                 }
 
-                VStack {
+                // Bottom content: user info (left) + actions (right)
+                VStack(spacing: 0) {
                     Spacer()
-                    HStack(alignment: .bottom) {
-                        VStack(alignment: .leading, spacing: 8) {
+
+                    HStack(alignment: .bottom, spacing: 12) {
+                        // Left: user info + caption
+                        VStack(alignment: .leading, spacing: 10) {
                             Button {
                                 onProfileTap?()
                             } label: {
-                                HStack(spacing: 8) {
+                                HStack(spacing: 10) {
                                     AsyncImage(url: AppConfig.resolvePhotoURL(reel.userPhoto)) { image in
                                         image.resizable().scaledToFill()
                                     } placeholder: { Circle().fill(Color.gray.opacity(0.3)) }
-                                    .frame(width: 40, height: 40).clipShape(Circle())
+                                    .frame(width: 44, height: 44)
+                                    .clipShape(Circle())
+                                    .overlay(Circle().stroke(.white.opacity(0.3), lineWidth: 1))
 
                                     VStack(alignment: .leading, spacing: 2) {
                                         HStack(spacing: 4) {
-                                            Text(reel.userName).font(.headline).foregroundColor(.white)
+                                            Text(reel.userName)
+                                                .font(.system(size: 15, weight: .bold))
+                                                .foregroundColor(.white)
                                             if reel.isVerified {
-                                                Image(systemName: "checkmark.seal.fill").font(.caption).foregroundColor(AppColors.secondary)
+                                                Image(systemName: "checkmark.seal.fill")
+                                                    .font(.system(size: 12))
+                                                    .foregroundColor(.blue)
                                             }
-                                            Text("\(reel.userAge)").font(.subheadline).foregroundColor(.white.opacity(0.8))
+                                            Text("• \(reel.userAge)")
+                                                .font(.system(size: 14))
+                                                .foregroundColor(.white.opacity(0.7))
                                         }
                                         if !reel.location.isEmpty {
-                                            HStack(spacing: 4) {
-                                                Image(systemName: "mappin").font(.caption2)
-                                                Text(reel.location).font(.caption)
-                                            }.foregroundColor(.white.opacity(0.7))
+                                            HStack(spacing: 3) {
+                                                Image(systemName: "location.fill")
+                                                    .font(.system(size: 9))
+                                                Text(reel.location)
+                                                    .font(.system(size: 12))
+                                            }
+                                            .foregroundColor(.white.opacity(0.6))
                                         }
                                     }
                                 }
                             }
+
                             if !reel.caption.isEmpty {
-                                Text(reel.caption).font(.subheadline).foregroundColor(.white).lineLimit(2)
+                                Text(reel.caption)
+                                    .font(.system(size: 14))
+                                    .foregroundColor(.white)
+                                    .lineLimit(2)
+                                    .shadow(color: .black.opacity(0.3), radius: 4)
+                            }
+
+                            if let music = reel.music {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "music.note")
+                                        .font(.system(size: 11))
+                                    Text("\(music.title) — \(music.artist)")
+                                        .font(.system(size: 12, weight: .medium))
+                                        .lineLimit(1)
+                                }
+                                .foregroundColor(.white.opacity(0.8))
+                                .shadow(color: .black.opacity(0.3), radius: 3)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                        VStack(spacing: 20) {
-                            reelAction(icon: reel.isLiked ? "heart.fill" : "heart", count: reel.likes, color: reel.isLiked ? .red : .white) { toggleLike() }
-                            reelAction(icon: "bubble.right", count: nil, color: .white) { showMessageSheet = true }
+                        // Right: action buttons (Instagram-style vertical stack)
+                        VStack(spacing: 22) {
+                            // Like
+                            reelAction(
+                                icon: reel.isLiked ? "heart.fill" : "heart",
+                                count: reel.likes,
+                                color: reel.isLiked ? .red : .white
+                            ) { toggleLike() }
+
+                            // Comment / Message
+                            reelAction(icon: "bubble.right", count: nil, color: .white) {
+                                showMessageSheet = true
+                            }
+
+                            // Share
                             reelAction(icon: "paperplane", count: nil, color: .white) {}
+
+                            // Like Creator (person heart)
+                            Button {
+                                likeCreator()
+                            } label: {
+                                VStack(spacing: 4) {
+                                    Image(systemName: "person.crop.circle.badge.plus")
+                                        .font(.system(size: 26))
+                                        .foregroundColor(.white)
+                                        .shadow(color: .black.opacity(0.4), radius: 4)
+                                }
+                            }
+
+                            // Mute / Unmute
+                            Button {
+                                onMuteToggle?()
+                            } label: {
+                                VStack(spacing: 4) {
+                                    Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                                        .font(.system(size: 24))
+                                        .foregroundColor(.white)
+                                        .shadow(color: .black.opacity(0.4), radius: 4)
+                                }
+                            }
                         }
+                        .padding(.bottom, 4)
                     }
-                    .padding().padding(.bottom, 30)
-                    .background(LinearGradient(colors: [.clear, .black.opacity(0.7)], startPoint: .top, endPoint: .bottom))
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 80) // Space for tab bar
+                    .background(
+                        LinearGradient(
+                            colors: [.clear, .clear, .black.opacity(0.4), .black.opacity(0.7)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .allowsHitTesting(false)
+                    )
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
+            .contentShape(Rectangle())
         }
         .ignoresSafeArea()
         .onTapGesture(count: 2) {
             if !reel.isLiked { toggleLike() }
             withAnimation(.spring(response: 0.3)) { showHeart = true }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { withAnimation { showHeart = false } }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                withAnimation { showHeart = false }
+            }
         }
-        .gesture(
-            DragGesture(minimumDistance: 60)
-                .onEnded { value in
-                    // Swipe up to like creator
-                    if value.translation.height < -80 && abs(value.translation.width) < abs(value.translation.height) {
-                        likeCreator()
-                    }
-                }
-        )
+        .onTapGesture(count: 1) {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isPaused.toggle()
+            }
+            if isPaused {
+                player.pause()
+            } else {
+                player.play()
+            }
+        }
         .overlay {
             if showLikeCreator {
                 VStack(spacing: 8) {
@@ -704,10 +891,13 @@ struct ReelCard: View {
             }
         }
         .onChange(of: isActive) { _, active in
-            if active { playerManager.play(url: reel.videoUrl); trackView() }
-            else { playerManager.pause() }
+            if active {
+                trackView()
+                isPaused = false
+            } else {
+                isPaused = false
+            }
         }
-        .onDisappear { playerManager.stop() }
         .sheet(isPresented: $showMessageSheet) {
             ReelMessageComposer(reel: reel, isPresented: $showMessageSheet)
                 .presentationDetents([.medium])
@@ -749,233 +939,27 @@ struct ReelCard: View {
     private func reelAction(icon: String, count: Int?, color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 4) {
-                Image(systemName: icon).font(.title2).foregroundColor(color)
-                if let count { Text(formatCount(count)).font(.caption2).foregroundColor(.white.opacity(0.8)) }
+                Image(systemName: icon)
+                    .font(.system(size: 26))
+                    .foregroundColor(color)
+                    .shadow(color: .black.opacity(0.4), radius: 4)
+                if let count {
+                    Text(formatCount(count))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.3), radius: 3)
+                }
             }
         }
     }
 
     private func formatCount(_ count: Int) -> String {
+        if count >= 1_000_000 { return String(format: "%.1fM", Double(count) / 1_000_000) }
         if count >= 1000 { return String(format: "%.1fK", Double(count) / 1000) }
         return "\(count)"
     }
 }
 
-// MARK: - Demo Reels
-extension Reel {
-    static let demos: [Reel] = [
-        Reel(
-            id: "demo-reel-1", userId: "demo-1", userName: "Priya", userAge: 26,
-            userPhoto: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-            caption: "Weekend vibes in the city! 🌇 #travel #adventure",
-            likes: 342, isLiked: false, isVerified: true, location: "Hyderabad"
-        ),
-        Reel(
-            id: "demo-reel-2", userId: "demo-2", userName: "Arjun", userAge: 29,
-            userPhoto: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-            caption: "Morning trail run with the best view 🏃‍♂️⛰️",
-            likes: 518, isLiked: false, isVerified: true, location: "Bangalore"
-        ),
-        Reel(
-            id: "demo-reel-3", userId: "demo-3", userName: "Meera", userAge: 27,
-            userPhoto: "https://images.unsplash.com/photo-1524504388940-b1c1722653e1?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
-            caption: "Cooking something special tonight 🍳✨",
-            likes: 276, isLiked: false, isVerified: false, location: "Chennai"
-        ),
-        Reel(
-            id: "demo-reel-4", userId: "demo-4", userName: "Sneha", userAge: 25,
-            userPhoto: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
-            caption: "Life is better with music 🎵 #singer #life",
-            likes: 891, isLiked: false, isVerified: true, location: "Mumbai"
-        ),
-        Reel(
-            id: "demo-reel-5", userId: "demo-5", userName: "Kavya", userAge: 24,
-            userPhoto: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
-            caption: "Sunset chasing is my cardio 🌅✨ #golden #wanderlust",
-            likes: 1203, isLiked: false, isVerified: true, location: "Goa"
-        ),
-        Reel(
-            id: "demo-reel-6", userId: "demo-6", userName: "Rohan", userAge: 28,
-            userPhoto: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-            caption: "Late night coding session turned into art 🎨💻 #developer #creative",
-            likes: 467, isLiked: false, isVerified: false, location: "Pune"
-        ),
-        Reel(
-            id: "demo-reel-7", userId: "demo-7", userName: "Ananya", userAge: 23,
-            userPhoto: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
-            caption: "Road trip diaries 🚗💨 who's coming next time?",
-            likes: 729, isLiked: false, isVerified: true, location: "Delhi"
-        ),
-        Reel(
-            id: "demo-reel-8", userId: "demo-8", userName: "Vikram", userAge: 30,
-            userPhoto: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-            caption: "When the gym hits different at 5 AM 💪🔥 #fitness #grind",
-            likes: 1547, isLiked: false, isVerified: true, location: "Hyderabad"
-        ),
-        Reel(
-            id: "demo-reel-9", userId: "demo-9", userName: "Diya", userAge: 26,
-            userPhoto: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4",
-            caption: "Coffee + books = perfect Sunday ☕📖 #cozy #bookworm",
-            likes: 385, isLiked: false, isVerified: false, location: "Kolkata"
-        ),
-        Reel(
-            id: "demo-reel-10", userId: "demo-10", userName: "Aditya", userAge: 27,
-            userPhoto: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4",
-            caption: "Beach bonfire with the squad 🏖️🔥 #friends #goodtimes",
-            likes: 2103, isLiked: false, isVerified: true, location: "Vizag"
-        ),
-        Reel(
-            id: "demo-reel-11", userId: "demo-11", userName: "Ishita", userAge: 24,
-            userPhoto: "https://images.unsplash.com/photo-1488426862026-3ee34a7d66df?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-            caption: "Dancing in the rain because why not 💃🌧️ #spontaneous",
-            likes: 1892, isLiked: false, isVerified: true, location: "Mumbai"
-        ),
-        Reel(
-            id: "demo-reel-12", userId: "demo-12", userName: "Karthik", userAge: 26,
-            userPhoto: "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-            caption: "Street photography at golden hour 📸 the city never sleeps",
-            likes: 634, isLiked: false, isVerified: true, location: "Bangalore"
-        ),
-        Reel(
-            id: "demo-reel-13", userId: "demo-13", userName: "Riya", userAge: 22,
-            userPhoto: "https://images.unsplash.com/photo-1502823403499-6ccfcf4fb453?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-            caption: "First day at the new studio! 🎨 #art #newbeginnings",
-            likes: 445, isLiked: false, isVerified: false, location: "Jaipur"
-        ),
-        Reel(
-            id: "demo-reel-14", userId: "demo-14", userName: "Sahil", userAge: 28,
-            userPhoto: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-            caption: "Surfing lesson gone wrong... or right? 🏄‍♂️😂 #beachlife",
-            likes: 2340, isLiked: false, isVerified: true, location: "Goa"
-        ),
-        Reel(
-            id: "demo-reel-15", userId: "demo-15", userName: "Tara", userAge: 25,
-            userPhoto: "https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
-            caption: "Trying every cafe in the city, one latte at a time ☕🗺️",
-            likes: 567, isLiked: false, isVerified: true, location: "Delhi"
-        ),
-        Reel(
-            id: "demo-reel-16", userId: "demo-16", userName: "Nikhil", userAge: 27,
-            userPhoto: "https://images.unsplash.com/photo-1521119989659-a83eee488004?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
-            caption: "Motorcycle ride through the Western Ghats 🏍️🌿 #ride #freedom",
-            likes: 1456, isLiked: false, isVerified: false, location: "Pune"
-        ),
-        Reel(
-            id: "demo-reel-17", userId: "demo-17", userName: "Sanya", userAge: 23,
-            userPhoto: "https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
-            caption: "Yoga at sunrise hits different 🧘‍♀️🌅 #mindfulness #peace",
-            likes: 987, isLiked: false, isVerified: true, location: "Rishikesh"
-        ),
-        Reel(
-            id: "demo-reel-18", userId: "demo-18", userName: "Dev", userAge: 31,
-            userPhoto: "https://images.unsplash.com/photo-1480455624313-e29b44bbafae?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-            caption: "Finished building my first guitar from scratch 🎸🔨 #diy",
-            likes: 3201, isLiked: false, isVerified: true, location: "Chennai"
-        ),
-        Reel(
-            id: "demo-reel-19", userId: "demo-19", userName: "Nisha", userAge: 26,
-            userPhoto: "https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
-            caption: "Backpacking across Meghalaya 🎒🌊 #northeast #explore",
-            likes: 1678, isLiked: false, isVerified: true, location: "Shillong"
-        ),
-        Reel(
-            id: "demo-reel-20", userId: "demo-20", userName: "Raj", userAge: 29,
-            userPhoto: "https://images.unsplash.com/photo-1504257432389-52343af06ae3?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
-            caption: "Night market food tour — my stomach is happy 🍜🔥",
-            likes: 812, isLiked: false, isVerified: false, location: "Hyderabad"
-        ),
-        Reel(
-            id: "demo-reel-21", userId: "demo-21", userName: "Pooja", userAge: 24,
-            userPhoto: "https://images.unsplash.com/photo-1514315384763-ba401779410f?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4",
-            caption: "Learning pottery and it's so therapeutic 🏺✨ #handmade",
-            likes: 543, isLiked: false, isVerified: true, location: "Udaipur"
-        ),
-        Reel(
-            id: "demo-reel-22", userId: "demo-22", userName: "Varun", userAge: 27,
-            userPhoto: "https://images.unsplash.com/photo-1463453091185-61582044d556?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4",
-            caption: "Paragliding over Bir Billing — absolutely unreal 🪂☁️",
-            likes: 4521, isLiked: false, isVerified: true, location: "Dharamshala"
-        ),
-        Reel(
-            id: "demo-reel-23", userId: "demo-23", userName: "Aisha", userAge: 25,
-            userPhoto: "https://images.unsplash.com/photo-1496440737103-cd596325d314?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-            caption: "My plant babies are thriving 🌱🪴 #plantmom #green",
-            likes: 321, isLiked: false, isVerified: false, location: "Kolkata"
-        ),
-        Reel(
-            id: "demo-reel-24", userId: "demo-24", userName: "Manish", userAge: 30,
-            userPhoto: "https://images.unsplash.com/photo-1506277886164-e25aa3f4ef7f?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-            caption: "Basketball pickup game at midnight 🏀🌙 #hoops #nightowl",
-            likes: 1102, isLiked: false, isVerified: true, location: "Bangalore"
-        ),
-        Reel(
-            id: "demo-reel-25", userId: "demo-25", userName: "Shreya", userAge: 22,
-            userPhoto: "https://images.unsplash.com/photo-1524638431109-93d95c968f03?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-            caption: "Diwali prep starts early in our house 🪔🎆 #festival #family",
-            likes: 2876, isLiked: false, isVerified: true, location: "Vizag"
-        ),
-        Reel(
-            id: "demo-reel-26", userId: "demo-26", userName: "Harsh", userAge: 28,
-            userPhoto: "https://images.unsplash.com/photo-1522075469751-3a6694fb2f61?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-            caption: "Trekking Hampta Pass was the hardest thing I've ever done 🏔️ #trek",
-            likes: 1934, isLiked: false, isVerified: false, location: "Manali"
-        ),
-        Reel(
-            id: "demo-reel-27", userId: "demo-27", userName: "Lakshmi", userAge: 26,
-            userPhoto: "https://images.unsplash.com/photo-1499952127939-9bbf5af6c51c?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
-            caption: "Classical dance practice — Bharatanatyam never gets old 💃🎶",
-            likes: 2210, isLiked: false, isVerified: true, location: "Chennai"
-        ),
-        Reel(
-            id: "demo-reel-28", userId: "demo-28", userName: "Kabir", userAge: 25,
-            userPhoto: "https://images.unsplash.com/photo-1507591064344-4c6ce005b128?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
-            caption: "Skateboarding through empty streets at dawn 🛹🌤️ #skate",
-            likes: 756, isLiked: false, isVerified: true, location: "Mumbai"
-        ),
-        Reel(
-            id: "demo-reel-29", userId: "demo-29", userName: "Tanvi", userAge: 23,
-            userPhoto: "https://images.unsplash.com/photo-1485893086445-ed75865251e0?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
-            caption: "Adopted this little furball today 🐶❤️ say hi to Mochi!",
-            likes: 5432, isLiked: false, isVerified: true, location: "Pune"
-        ),
-        Reel(
-            id: "demo-reel-30", userId: "demo-30", userName: "Aman", userAge: 29,
-            userPhoto: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=400",
-            videoUrl: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-            caption: "Stargazing in Spiti Valley — zero light pollution 🌌✨ #astro",
-            likes: 3890, isLiked: false, isVerified: true, location: "Spiti"
-        ),
-    ]
-}
 
 // MARK: - Upload Progress Pill
 struct ReelUploadProgressPill: View {
@@ -1041,9 +1025,10 @@ struct ReelUploadProgressPill: View {
         case .awaitingFilter: return "Pick a filter"
         case .exportingFilter(let p): return "Applying filter \(Int(p * 100))%"
         case .readyToPost: return "Ready to post"
+        case .mixingAudio(let p): return "Mixing audio \(Int(p * 100))%"
         case .uploading(let p): return "Uploading \(Int(p * 100))%"
         case .done: return "Upload complete!"
-        case .failed: return "Upload failed"
+        case .failed: return "Upload failed — tap to retry"
         }
     }
 
@@ -1063,10 +1048,19 @@ struct ReelUploadProgressPill: View {
                 .font(.system(size: 22))
                 .foregroundColor(.green)
         case .failed:
-            Button { uploadService.dismiss() } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 22))
-                    .foregroundColor(.red)
+            HStack(spacing: 8) {
+                if uploadService.canRetry {
+                    Button { uploadService.retry() } label: {
+                        Image(systemName: "arrow.clockwise.circle.fill")
+                            .font(.system(size: 22))
+                            .foregroundColor(.orange)
+                    }
+                }
+                Button { uploadService.dismiss() } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(.red)
+                }
             }
         default:
             ProgressView()
@@ -1081,12 +1075,25 @@ struct UploadReelView: View {
     @Environment(\.dismiss) var dismiss
     @EnvironmentObject var uploadService: ReelUploadService
     @EnvironmentObject var auth: AuthManager
+    @EnvironmentObject var storeKit: StoreKitManager
     @State private var selectedItem: PhotosPickerItem? = nil
     @State private var hasPickedVideo = false
     @State private var caption = ""
     @State private var filterThumbnails: [VideoFilter: UIImage] = [:]
     @State private var showCamera = false
     @State private var showDocumentPicker = false
+    @State private var uploadError: String?
+    @State private var postScope: ReelFeedScope = .global
+    @State private var showPremiumGate = false
+    @State private var showTrimmer = false
+    @State private var pendingVideoURL: URL?
+    @State private var isLoadingVideo = false
+    @State private var selectedMusic: ReelMusic?
+    @State private var showMusicPicker = false
+    @State private var musicVolume: Float = 0.5
+    @State private var videoPlayer: AVPlayer?
+    @State private var musicPlayer: AVPlayer?
+    @State private var isPlayingPreview = false
 
     var body: some View {
         NavigationStack {
@@ -1095,6 +1102,25 @@ struct UploadReelView: View {
 
                 if !hasPickedVideo {
                     videoPickerView
+                        .overlay {
+                            if isLoadingVideo {
+                                ZStack {
+                                    Color.black.opacity(0.5).ignoresSafeArea()
+                                    VStack(spacing: 12) {
+                                        ProgressView()
+                                            .tint(.white)
+                                            .scaleEffect(1.2)
+                                        Text("Loading video…")
+                                            .font(.system(size: 14, weight: .medium))
+                                            .foregroundColor(.white.opacity(0.8))
+                                    }
+                                    .padding(24)
+                                    .background(.ultraThinMaterial)
+                                    .environment(\.colorScheme, .dark)
+                                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                                }
+                            }
+                        }
                 } else {
                     filterEditorView
                 }
@@ -1107,6 +1133,7 @@ struct UploadReelView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Cancel") {
+                        stopPreview()
                         uploadService.dismiss()
                         dismiss()
                     }
@@ -1130,11 +1157,69 @@ struct UploadReelView: View {
             }
             .sheet(isPresented: $showDocumentPicker) {
                 VideoDocumentPicker { url in
-                    uploadService.prepare(localURL: url)
-                    uploadService.applyFilter(.original)
-                    hasPickedVideo = true
+                    Task {
+                        let duration = await videoDuration(for: url)
+                        if duration > 30 {
+                            pendingVideoURL = url
+                            showTrimmer = true
+                        } else {
+                            uploadService.prepare(localURL: url)
+                            uploadService.applyFilter(.original)
+                            hasPickedVideo = true
+                        }
+                    }
                 }
             }
+            .onChange(of: uploadService.phase) { _, newPhase in
+                if case .failed(let message) = newPhase {
+                    uploadError = message
+                }
+            }
+            .alert("Upload Failed", isPresented: Binding(
+                get: { uploadError != nil },
+                set: { if !$0 { uploadError = nil } }
+            )) {
+                Button("OK") { uploadError = nil }
+            } message: {
+                Text(uploadError ?? "An unknown error occurred.")
+            }
+            .fullScreenCover(isPresented: $showTrimmer) {
+                if let url = pendingVideoURL {
+                    VideoTrimmerView(
+                        videoURL: url,
+                        onTrimmed: { trimmedURL in
+                            showTrimmer = false
+                            pendingVideoURL = nil
+                            uploadService.prepare(localURL: trimmedURL)
+                            uploadService.applyFilter(.original)
+                            hasPickedVideo = true
+                        },
+                        onCancel: {
+                            showTrimmer = false
+                            pendingVideoURL = nil
+                        }
+                    )
+                }
+            }
+            .sheet(isPresented: $showMusicPicker) {
+                MusicSearchView { music in
+                    stopPreview()
+                    selectedMusic = music
+                }
+                .presentationDetents([.large])
+            }
+        }
+    }
+
+    // MARK: - Duration Helper
+
+    private func videoDuration(for url: URL) async -> Double {
+        let asset = AVURLAsset(url: url)
+        do {
+            let duration = try await asset.load(.duration)
+            return CMTimeGetSeconds(duration)
+        } catch {
+            return 0
         }
     }
 
@@ -1160,10 +1245,18 @@ struct UploadReelView: View {
                 .onChange(of: selectedItem) { _, item in
                     Task {
                         guard let item else { return }
+                        isLoadingVideo = true
+                        defer { isLoadingVideo = false }
                         if let movie = try? await item.loadTransferable(type: VideoTransferable.self) {
-                            uploadService.prepare(localURL: movie.url)
-                            uploadService.applyFilter(.original)
-                            hasPickedVideo = true
+                            let duration = await videoDuration(for: movie.url)
+                            if duration > 30 {
+                                pendingVideoURL = movie.url
+                                showTrimmer = true
+                            } else {
+                                uploadService.prepare(localURL: movie.url)
+                                uploadService.applyFilter(.original)
+                                hasPickedVideo = true
+                            }
                         }
                     }
                 }
@@ -1188,7 +1281,7 @@ struct UploadReelView: View {
                     )
                 }
 
-                Text("Max 30 seconds")
+                Text("Max 30 seconds · Longer videos can be trimmed")
                     .font(.caption)
                     .foregroundColor(.white.opacity(0.3))
                     .padding(.top, 8)
@@ -1248,6 +1341,17 @@ struct UploadReelView: View {
                         .background(AppColors.darkCard)
                         .clipShape(RoundedRectangle(cornerRadius: 12))
                         .tint(AppColors.purpleAccent)
+
+                    // Music picker
+                    musicPickerRow
+
+                    // Music volume slider
+                    if selectedMusic != nil {
+                        musicVolumeSlider
+                    }
+
+                    // Scope picker (Global / Local)
+                    scopePicker
                 }
                 .padding(.horizontal, 20)
             }
@@ -1270,13 +1374,42 @@ struct UploadReelView: View {
     private var previewWithBadge: some View {
         ZStack(alignment: .topTrailing) {
             Group {
-                if let thumb = uploadService.thumbnail {
+                if isPlayingPreview, let player = videoPlayer {
+                    // Video playback preview
+                    FullScreenVideoPlayer(player: player)
+                        .aspectRatio(9/16, contentMode: .fit)
+                        .frame(maxWidth: .infinity, maxHeight: 360)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .overlay(alignment: .center) {
+                            // Tap to stop
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onTapGesture { stopPreview() }
+                        }
+                        .overlay(alignment: .bottomTrailing) {
+                            Image(systemName: "stop.circle.fill")
+                                .font(.system(size: 32))
+                                .foregroundColor(.white.opacity(0.8))
+                                .padding(12)
+                        }
+                } else if let thumb = uploadService.thumbnail {
                     let filtered = uploadService.selectedFilter.applyToImage(thumb)
                     Image(uiImage: filtered)
                         .resizable()
                         .scaledToFit()
                         .frame(maxWidth: .infinity, maxHeight: 360)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
+                        .overlay(alignment: .center) {
+                            // Play button overlay (only when video is ready)
+                            if uploadService.previewVideoURL != nil {
+                                Button { playPreview() } label: {
+                                    Image(systemName: "play.circle.fill")
+                                        .font(.system(size: 48))
+                                        .foregroundColor(.white.opacity(0.85))
+                                        .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
+                                }
+                            }
+                        }
                 } else {
                     RoundedRectangle(cornerRadius: 16)
                         .fill(AppColors.darkCard)
@@ -1290,6 +1423,46 @@ struct UploadReelView: View {
             phaseBadge
                 .padding(12)
         }
+    }
+
+    // MARK: - Preview Playback
+
+    private func playPreview() {
+        guard let videoURL = uploadService.previewVideoURL else { return }
+
+        let vPlayer = AVPlayer(url: videoURL)
+        vPlayer.volume = 1.0 - musicVolume  // Original audio reduced by music volume
+        videoPlayer = vPlayer
+
+        // If music is selected, play it alongside
+        if let music = selectedMusic, let previewURLString = music.previewURL,
+           let previewURL = URL(string: previewURLString) {
+            let mPlayer = AVPlayer(url: previewURL)
+            mPlayer.volume = musicVolume
+            musicPlayer = mPlayer
+        }
+
+        isPlayingPreview = true
+        vPlayer.play()
+        musicPlayer?.play()
+
+        // Loop video when it ends
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: vPlayer.currentItem,
+            queue: .main
+        ) { [weak vPlayer] _ in
+            vPlayer?.seek(to: .zero)
+            vPlayer?.play()
+        }
+    }
+
+    private func stopPreview() {
+        videoPlayer?.pause()
+        musicPlayer?.pause()
+        videoPlayer = nil
+        musicPlayer = nil
+        isPlayingPreview = false
     }
 
     // MARK: - Phase Badge
@@ -1315,6 +1488,11 @@ struct UploadReelView: View {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundColor(.green)
                 Text("Ready to post")
+            case .mixingAudio(let p):
+                ProgressView()
+                    .scaleEffect(0.6)
+                    .tint(.white)
+                Text("Mixing audio \(Int(p * 100))%")
             case .uploading(let p):
                 ProgressView()
                     .scaleEffect(0.6)
@@ -1416,18 +1594,157 @@ struct UploadReelView: View {
         }
     }
 
+    // MARK: - Scope Picker
+
+    private var scopePicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Visibility")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.white.opacity(0.5))
+
+            HStack(spacing: 0) {
+                ForEach(ReelFeedScope.allCases, id: \.self) { scope in
+                    Button {
+                        if scope == .local && !storeKit.isPremium {
+                            showPremiumGate = true
+                        } else {
+                            withAnimation(.easeInOut(duration: 0.2)) { postScope = scope }
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: scope == .global ? "globe" : "mappin.circle.fill")
+                                .font(.system(size: 13))
+                            Text(scope.rawValue)
+                                .font(.system(size: 13, weight: .semibold))
+                            if scope == .local && !storeKit.isPremium {
+                                Image(systemName: "crown.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.yellow)
+                            }
+                        }
+                        .foregroundColor(postScope == scope ? .white : .white.opacity(0.5))
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(postScope == scope ? AppColors.purpleAccent.opacity(0.5) : Color.clear)
+                        .clipShape(Capsule())
+                    }
+                }
+            }
+            .padding(3)
+            .background(AppColors.darkCard)
+            .clipShape(Capsule())
+        }
+        .fullScreenCover(isPresented: $showPremiumGate) {
+            PremiumView()
+        }
+    }
+
+    // MARK: - Music Picker Row
+
+    private var musicPickerRow: some View {
+        Button { showMusicPicker = true } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "music.note")
+                    .font(.system(size: 18))
+                    .foregroundColor(AppColors.purpleAccent)
+                    .frame(width: 36, height: 36)
+                    .background(AppColors.purpleAccent.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                if let music = selectedMusic {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(music.title)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                        Text(music.artist)
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.6))
+                            .lineLimit(1)
+                    }
+
+                    Spacer()
+
+                    Button {
+                        stopPreview()
+                        selectedMusic = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.white.opacity(0.4))
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Text("Add Music")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.white.opacity(0.7))
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.3))
+                }
+            }
+            .padding(12)
+            .background(AppColors.darkCard)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Music Volume Slider
+
+    private var musicVolumeSlider: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "speaker.wave.1.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.5))
+
+                Slider(value: Binding(
+                    get: { Double(musicVolume) },
+                    set: { musicVolume = Float($0) }
+                ), in: 0...1)
+                .tint(AppColors.purpleAccent)
+
+                Image(systemName: "speaker.wave.3.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(.white.opacity(0.5))
+            }
+
+            HStack {
+                Text("Original")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.4))
+                Spacer()
+                Text("Music: \(Int(musicVolume * 100))%")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(AppColors.purpleAccent.opacity(0.8))
+                Spacer()
+                Text("Music")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.4))
+            }
+        }
+        .padding(12)
+        .background(AppColors.darkCard)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+
     // MARK: - Post Button
 
     private var postButton: some View {
         let isReady: Bool = {
             switch uploadService.phase {
-            case .readyToPost, .done: return true
+            case .readyToPost: return true
             default: return false
             }
         }()
 
         return Button {
-            uploadService.post(caption: caption, authToken: auth.token)
+            stopPreview()
+            uploadService.post(caption: caption, scope: postScope.rawValue.lowercased(), music: selectedMusic, musicVolume: musicVolume, authToken: auth.token)
+            // Dismiss immediately — upload continues in background via the
+            // app-level ReelUploadService singleton. Progress shown in MainTabView.
             dismiss()
         } label: {
             Text("Post")
@@ -1470,7 +1787,13 @@ struct VideoTransferable: Transferable {
             SentTransferredFile(video.url)
         } importing: { received in
             let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("reel_\(UUID().uuidString).mp4")
-            try FileManager.default.copyItem(at: received.file, to: tempURL)
+            // Prefer move over copy — it's nearly instant (no byte copying) since
+            // the received file is a temporary file on the same filesystem.
+            do {
+                try FileManager.default.moveItem(at: received.file, to: tempURL)
+            } catch {
+                try FileManager.default.copyItem(at: received.file, to: tempURL)
+            }
             return Self(url: tempURL)
         }
     }
@@ -1508,9 +1831,10 @@ struct VideoCameraRecorder: UIViewControllerRepresentable {
         func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
             picker.dismiss(animated: true)
             if let videoURL = info[.mediaURL] as? URL {
-                // Copy to temp directory to ensure persistence
+                // Copy to temp directory, preserving the original file extension
+                let ext = videoURL.pathExtension.isEmpty ? "mov" : videoURL.pathExtension
                 let tempURL = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("camera_\(UUID().uuidString).mp4")
+                    .appendingPathComponent("camera_\(UUID().uuidString).\(ext)")
                 try? FileManager.default.copyItem(at: videoURL, to: tempURL)
                 onComplete(tempURL)
             } else {
@@ -1558,9 +1882,10 @@ struct VideoDocumentPicker: UIViewControllerRepresentable {
             guard sourceURL.startAccessingSecurityScopedResource() else { return }
             defer { sourceURL.stopAccessingSecurityScopedResource() }
 
-            // Copy to temp directory
+            // Copy to temp directory, preserving the original file extension
+            let ext = sourceURL.pathExtension.isEmpty ? "mp4" : sourceURL.pathExtension
             let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("files_\(UUID().uuidString).mp4")
+                .appendingPathComponent("files_\(UUID().uuidString).\(ext)")
             do {
                 try FileManager.default.copyItem(at: sourceURL, to: tempURL)
                 onPick(tempURL)

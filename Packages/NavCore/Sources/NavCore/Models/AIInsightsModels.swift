@@ -100,25 +100,3 @@ public struct AIHighlights: Codable {
     }
 }
 
-// MARK: - Demo Data
-
-public extension AIInsightsResponse {
-    static let demo = AIInsightsResponse(
-        compatibilityScore: 78,
-        compatibilityLabel: "Strong compatibility",
-        breakdown: AIBreakdown(
-            personalityMatch: AIScoreItem(score: 82, label: "Your profiles are highly aligned", weightPct: 55),
-            sharedInterests: AIInterestsItem(score: 60, label: "Good interest overlap", shared: ["hiking", "music"], weightPct: 10),
-            sharedLanguages: AILanguagesItem(score: 100, label: "You speak the same language", shared: ["English"], weightPct: 5),
-            relationshipGoals: AIScoreItem(score: 100, label: "Same relationship goals", weightPct: 5),
-            proximity: AIProximityItem(score: 85, label: "12 km away", distanceKm: 12.3, weightPct: 20),
-            superLikeBoost: AISuperLikeBoost(active: false, label: "No super like")
-        ),
-        highlights: AIHighlights(
-            sameUniversity: true,
-            university: "IIT Bombay",
-            cfSignal: true,
-            cfLabel: "Some mutual connections liked them"
-        )
-    )
-}

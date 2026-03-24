@@ -18,8 +18,8 @@ public enum DeepLink: Equatable {
     /// The tab index this deep link should activate in MainTabView.
     public var tabIndex: Int {
         switch self {
-        case .chat: return 3
-        case .matches, .matchDetail: return 2
+        case .chat: return 2
+        case .matches, .matchDetail: return 1
         case .reels, .reelMessage: return 0
         case .profile: return 4
         }

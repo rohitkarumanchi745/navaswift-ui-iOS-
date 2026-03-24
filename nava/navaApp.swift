@@ -61,6 +61,7 @@ struct navaApp: App {
     @StateObject private var pushManager = PushNotificationManager()
     @StateObject private var networkMonitor = NetworkMonitor()
     @StateObject private var reelUploadService = ReelUploadService()
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         // Wire APIService metrics into NetworkMetrics
@@ -91,10 +92,20 @@ struct navaApp: App {
                 .task {
                     // Connect AppDelegate to PushNotificationManager
                     appDelegate.pushManager = pushManager
+                    // Wire logout to unregister push token and clear badge
+                    authManager.onLogout = { [weak pushManager] in
+                        pushManager?.unregisterToken()
+                        pushManager?.clearBadge()
+                    }
                     // Configure audio session for Bluetooth routing (calls, reels, media)
                     AudioSessionManager.shared.configure()
                     // Start periodic telemetry flush (every 5 minutes)
                     NetworkMetrics.shared.startPeriodicFlush()
+                }
+                .onChange(of: scenePhase) { _, newPhase in
+                    if newPhase == .active {
+                        pushManager.clearBadge()
+                    }
                 }
                 .onChange(of: networkMonitor.isConnected) { _, connected in
                     if connected {

@@ -194,6 +194,7 @@ public extension LocalCache {
         case conversations = "conversations"
         case matches = "matches"
         case reelInbox = "reel_inbox"
+        case reelActivity = "reel_activity"
     }
 }
 

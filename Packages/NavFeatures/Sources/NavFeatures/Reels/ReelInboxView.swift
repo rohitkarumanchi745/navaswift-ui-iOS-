@@ -203,8 +203,7 @@ struct ReelInboxView: View {
             if let cached = LocalCache.shared.load(ReelInboxResponse.self, forKey: .reelInbox) {
                 messages = cached.messages
             } else {
-                // Fall back to demo data
-                messages = ReelInboxItem.demos
+                messages = []
             }
         }
         isLoading = false

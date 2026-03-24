@@ -19,9 +19,39 @@ struct ChatView: View {
     @FocusState private var isInputFocused: Bool
     @Environment(\.dismiss) private var dismiss
 
+    @AppStorage("settings_online_status") private var showOnlineStatus = true
+
     private var meId: Int? {
         if let id = auth.user?.id { return Int(id) }
         return nil
+    }
+
+    /// Uses real-time WebSocket presence if available, falls back to match profile data
+    private var presenceText: String {
+        if ws.isConnected {
+            if ws.partnerIsOnline { return "Online" }
+            if let lastSeen = ws.partnerLastSeen {
+                let interval = Date().timeIntervalSince(lastSeen)
+                if interval < 60 { return "Last seen just now" }
+                if interval < 3600 {
+                    let mins = Int(interval / 60)
+                    return "Last seen \(mins) min ago"
+                }
+                if interval < 86400 {
+                    let hours = Int(interval / 3600)
+                    return "Last seen \(hours)h ago"
+                }
+                if interval < 172800 { return "Last seen yesterday" }
+                let formatter = DateFormatter()
+                formatter.dateFormat = "MMM d"
+                return "Last seen \(formatter.string(from: lastSeen))"
+            }
+        }
+        return match.lastSeenText
+    }
+
+    private var isPartnerOnline: Bool {
+        ws.isConnected ? ws.partnerIsOnline : match.isOnline
     }
 
     var body: some View {
@@ -36,21 +66,32 @@ struct ChatView: View {
 
                 Button { showProfileDetail = true } label: {
                     HStack(spacing: 12) {
-                        AsyncImage(url: AppConfig.resolvePhotoURL(match.photo)) { image in
-                            image.resizable().scaledToFill()
-                        } placeholder: {
-                            Circle().fill(AppColors.darkCard)
+                        ZStack(alignment: .bottomTrailing) {
+                            AsyncImage(url: AppConfig.resolvePhotoURL(match.photo)) { image in
+                                image.resizable().scaledToFill()
+                            } placeholder: {
+                                Circle().fill(AppColors.darkCard)
+                            }
+                            .frame(width: 40, height: 40)
+                            .clipShape(Circle())
+
+                            if isPartnerOnline {
+                                Circle()
+                                    .fill(AppColors.online)
+                                    .frame(width: 12, height: 12)
+                                    .overlay {
+                                        Circle().strokeBorder(.white, lineWidth: 2)
+                                    }
+                            }
                         }
-                        .frame(width: 40, height: 40)
-                        .clipShape(Circle())
 
                         VStack(alignment: .leading, spacing: 1) {
                             Text(match.name)
                                 .font(.system(size: 17, weight: .semibold))
                                 .foregroundStyle(.white)
-                            Text(match.isOnline ? "Online" : "Last seen recently")
+                            Text(presenceText)
                                 .font(.system(size: 13))
-                                .foregroundStyle(AppColors.darkTextSecondary)
+                                .foregroundStyle(isPartnerOnline ? AppColors.online : AppColors.darkTextSecondary)
                         }
                     }
                 }
@@ -194,7 +235,7 @@ struct ChatView: View {
         .task {
             await loadMessages()
             if let token = auth.token {
-                ws.connect(matchId: match.matchId, token: token)
+                ws.connect(matchId: match.matchId, token: token, showOnlineStatus: showOnlineStatus)
             }
         }
         .onDisappear { ws.disconnect() }
@@ -271,16 +312,7 @@ struct ChatView: View {
                 hasMoreMessages = parsed.count >= 50
             }
         } catch {
-            // Fall back to demo messages if API fails and no messages loaded
             if offset == 0 && messages.isEmpty {
-                let partnerId = Int(match.id) ?? 999
-                let myId = meId ?? 1
-                messages = ChatMessage.demoConversation(
-                    matchId: match.matchId,
-                    meId: myId,
-                    partnerId: partnerId,
-                    partnerName: match.name
-                )
                 hasMoreMessages = false
             }
         }

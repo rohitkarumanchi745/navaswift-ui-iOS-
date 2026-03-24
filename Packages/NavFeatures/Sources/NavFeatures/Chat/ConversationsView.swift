@@ -194,7 +194,7 @@ struct ConversationsView: View {
                 matches {
                     id
                     partner {
-                        id name age photos
+                        id name age photos isOnline lastSeen
                     }
                     isMutual
                     matchedAt
@@ -207,6 +207,8 @@ struct ConversationsView: View {
                     guard let partner = m["partner"] as? [String: Any],
                           let isMutual = m["isMutual"] as? Bool, isMutual else { return nil }
                     let photos = partner["photos"] as? [String]
+                    let online = partner["isOnline"] as? Bool ?? false
+                    let lastSeenDate = Self.parseISO(partner["lastSeen"] as? String)
                     return MatchProfile(
                         id: "\(partner["id"] ?? "")",
                         matchId: "\(m["id"] ?? "")",
@@ -216,16 +218,17 @@ struct ConversationsView: View {
                         lastMessage: nil,
                         timestamp: formatTimestamp(m["matchedAt"] as? String),
                         unreadCount: 0,
-                        isOnline: false,
-                        isMutual: true
+                        isOnline: online,
+                        isMutual: true,
+                        lastSeen: lastSeenDate
                     )
                 }
-                conversations = fetched.isEmpty ? MatchProfile.demos : fetched
+                conversations = fetched
                 if !fetched.isEmpty {
                     LocalCache.shared.save(fetched, forKey: .conversations)
                 }
             } else {
-                conversations = MatchProfile.demos
+                conversations = []
             }
         } catch {
             if conversations.isEmpty {
@@ -234,7 +237,7 @@ struct ConversationsView: View {
                     errorMessage = nil
                 } else {
                     errorMessage = "Could not load conversations."
-                    conversations = MatchProfile.demos
+                    conversations = []
                 }
             }
         }
@@ -249,5 +252,12 @@ struct ConversationsView: View {
         let rel = RelativeDateTimeFormatter()
         rel.unitsStyle = .abbreviated
         return rel.localizedString(for: date, relativeTo: Date())
+    }
+
+    private static func parseISO(_ string: String?) -> Date? {
+        guard let string else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: string)
     }
 }

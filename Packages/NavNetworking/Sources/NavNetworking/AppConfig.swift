@@ -32,6 +32,13 @@ public struct AppConfig {
     /// Paths starting with "/" are treated as relative to the API base URL.
     /// Paths that are already full URLs (http/https) are returned as-is.
     public static func resolvePhotoURL(_ path: String?) -> URL? {
+        resolveMediaURL(path)
+    }
+
+    /// Resolves any media path (photo, video, etc.) to a full URL.
+    /// Paths starting with "/" are treated as relative to the API base URL.
+    /// Paths that are already full URLs (http/https) are returned as-is.
+    public static func resolveMediaURL(_ path: String?) -> URL? {
         guard let path, !path.isEmpty else { return nil }
         if path.hasPrefix("http://") || path.hasPrefix("https://") {
             return URL(string: path)

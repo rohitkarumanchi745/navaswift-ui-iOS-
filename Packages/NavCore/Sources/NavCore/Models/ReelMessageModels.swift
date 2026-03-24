@@ -161,66 +161,82 @@ public struct ReelMatchAcceptResponse: Codable {
     }
 }
 
-// MARK: - Demo Data
+// MARK: - Reel Activity Item (GET /reels/activity)
 
-public extension ReelInboxItem {
-    static let demos: [ReelInboxItem] = [
-        ReelInboxItem(
-            id: "msg-1", reelId: "demo-reel-1", senderId: "demo-1",
-            senderName: "Priya", senderPhoto: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=400",
-            senderAge: 26, content: "Love your sunset video! Where was that shot? The colors are unreal",
-            createdAt: "2026-03-11T10:30:00Z", isRead: false,
-            reelCaption: "Weekend vibes in the city!"
-        ),
-        ReelInboxItem(
-            id: "msg-2", reelId: "demo-reel-3", senderId: "demo-3",
-            senderName: "Meera", senderPhoto: "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=400",
-            senderAge: 27, content: "That cooking video was amazing! You have to share the recipe",
-            createdAt: "2026-03-11T08:15:00Z", isRead: false,
-            reelCaption: "Cooking something special tonight"
-        ),
-        ReelInboxItem(
-            id: "msg-3", reelId: "demo-reel-5", senderId: "demo-5",
-            senderName: "Kavya", senderPhoto: "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?w=400",
-            senderAge: 24, content: "The sunset chasing reel was everything! Goa looks magical",
-            createdAt: "2026-03-10T18:45:00Z", isRead: true,
-            reelCaption: "Sunset chasing is my cardio"
-        ),
-        ReelInboxItem(
-            id: "msg-4", reelId: "demo-reel-2", senderId: "demo-4",
-            senderName: "Sneha", senderPhoto: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=400",
-            senderAge: 25, content: "Your trail run reel motivated me to finally sign up for that 5k!",
-            createdAt: "2026-03-10T14:20:00Z", isRead: true,
-            reelCaption: "Morning trail run with the best view"
-        ),
-        ReelInboxItem(
-            id: "msg-5", reelId: "demo-reel-7", senderId: "demo-7",
-            senderName: "Ananya", senderPhoto: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=400",
-            senderAge: 23, content: "Road trip goals! Which route did you take?",
-            createdAt: "2026-03-09T22:00:00Z", isRead: true,
-            reelCaption: "Road trip diaries"
-        ),
-        ReelInboxItem(
-            id: "msg-6", reelId: "demo-reel-8", senderId: "demo-8",
-            senderName: "Vikram", senderPhoto: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=400",
-            senderAge: 30, content: "5 AM gym? That's dedication. What's your workout split?",
-            createdAt: "2026-03-09T06:30:00Z", isRead: true,
-            reelCaption: "When the gym hits different at 5 AM"
-        ),
-    ]
-}
+public struct ReelActivityItem: Identifiable, Codable {
+    public let id: String
+    public let type: String           // "like", "view", "message", "like_creator"
+    public let reelId: String
+    public let reelCaption: String?
+    public let actorId: String
+    public let actorName: String
+    public let actorPhoto: String
+    public let actorAge: Int?
+    public let createdAt: String
 
-public extension ReelThreadMessage {
-    static func demoThread() -> [ReelThreadMessage] {
-        [
-            ReelThreadMessage(id: "t-1", senderId: "demo-1", content: "Love your sunset video! Where was that shot? The colors are unreal", createdAt: "2026-03-11T10:30:00Z", isMe: false),
-            ReelThreadMessage(id: "t-2", senderId: "me", content: "Thanks! That was in Goa last weekend. The monsoon light is something else", createdAt: "2026-03-11T10:32:00Z", isMe: true),
-            ReelThreadMessage(id: "t-3", senderId: "demo-1", content: "Goa in monsoon? You're brave! I was there last month too actually", createdAt: "2026-03-11T10:35:00Z", isMe: false),
-            ReelThreadMessage(id: "t-4", senderId: "me", content: "No way! Which part? I was near Palolem the whole time", createdAt: "2026-03-11T10:36:00Z", isMe: true),
-            ReelThreadMessage(id: "t-5", senderId: "demo-1", content: "I stayed in Assagao, near the Saturday night market. The vibes there are incredible", createdAt: "2026-03-11T10:38:00Z", isMe: false),
-            ReelThreadMessage(id: "t-6", senderId: "me", content: "I love that area! There's a tiny cafe there that does the best Goan fish curry", createdAt: "2026-03-11T10:40:00Z", isMe: true),
-            ReelThreadMessage(id: "t-7", senderId: "demo-1", content: "Okay now I need to go back just for that. Send me the name?", createdAt: "2026-03-11T10:42:00Z", isMe: false),
-            ReelThreadMessage(id: "t-8", senderId: "me", content: "Better yet, I'll take you there next time. It's hidden so you'd never find it on Google Maps", createdAt: "2026-03-11T10:43:00Z", isMe: true),
-        ]
+    enum CodingKeys: String, CodingKey {
+        case id = "activity_id"
+        case type
+        case reelId = "reel_id"
+        case reelCaption = "reel_caption"
+        case actorId = "actor_id"
+        case actorName = "actor_name"
+        case actorPhoto = "actor_photo"
+        case actorAge = "actor_age"
+        case createdAt = "created_at"
+    }
+
+    public init(id: String, type: String, reelId: String, reelCaption: String? = nil,
+                actorId: String, actorName: String, actorPhoto: String,
+                actorAge: Int? = nil, createdAt: String) {
+        self.id = id; self.type = type; self.reelId = reelId
+        self.reelCaption = reelCaption; self.actorId = actorId
+        self.actorName = actorName; self.actorPhoto = actorPhoto
+        self.actorAge = actorAge; self.createdAt = createdAt
+    }
+
+    public var icon: String {
+        switch type {
+        case "like": return "heart.fill"
+        case "view": return "eye.fill"
+        case "message": return "bubble.left.fill"
+        case "like_creator": return "hand.thumbsup.fill"
+        default: return "bell.fill"
+        }
+    }
+
+    public var iconColor: String {
+        switch type {
+        case "like": return "FF8A9E"
+        case "view": return "7BB3FF"
+        case "message": return "C9A0DC"
+        case "like_creator": return "4ECDC4"
+        default: return "FFFFFF"
+        }
+    }
+
+    public var activityDescription: String {
+        switch type {
+        case "like": return "liked your reel"
+        case "view": return "viewed your reel"
+        case "message": return "messaged on your reel"
+        case "like_creator": return "liked you from your reel"
+        default: return "interacted with your reel"
+        }
     }
 }
+
+public struct ReelActivityResponse: Codable {
+    public let activities: [ReelActivityItem]
+    public let totalLikes: Int?
+    public let totalViews: Int?
+    public let totalMessages: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case activities
+        case totalLikes = "total_likes"
+        case totalViews = "total_views"
+        case totalMessages = "total_messages"
+    }
+}
+

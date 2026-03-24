@@ -479,7 +479,8 @@ struct MessageRequestDetailView: View {
                         name: profile.name, age: profile.age,
                         photo: profile.photo, lastMessage: profile.message,
                         timestamp: "Just now", unreadCount: 0,
-                        isOnline: false, isMutual: true
+                        isOnline: false, isMutual: true,
+                        lastSeen: Date()
                     )
                     acceptedMatch = match
                     onAccept?(match)
@@ -515,7 +516,8 @@ struct MessageRequestDetailView: View {
                     name: profile.name, age: profile.age,
                     photo: profile.photo, lastMessage: profile.message,
                     timestamp: "Just now", unreadCount: 0,
-                    isOnline: false, isMutual: true
+                    isOnline: false, isMutual: true,
+                    lastSeen: Date()
                 )
                 acceptedMatch = match
                 onAccept?(match)

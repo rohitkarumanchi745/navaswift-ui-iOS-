@@ -45,7 +45,10 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 - StoreKit Configuration file for sandbox testing
 
 ### Verification
-- **Selfie verification** with liveness detection
+- **Selfie verification** with on-device liveness detection (Vision framework face detection)
+- **On-device face matching** — selfie compared against existing profile photos using `VNGenerateImageFeaturePrintRequest` feature-print distance before uploading to backend
+- **Dual-layer verification** — client-side Vision framework face matching + server-side ArcFace ONNX model
+- **Face detection on photo uploads** — profile photos must contain a visible face or they are rejected during onboarding
 - **Student verification** via university email OTP with multi-step flow
 - **Student ID verification** with photo upload
 - **Alumni verification** for graduated users
@@ -57,6 +60,7 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 ### Profile & Settings
 - Profile editing with photo upload and **university picker** (API-driven autocomplete)
 - **Interleaved profile detail view** — photos interspersed with bio, interests, languages, and reels sections
+- **Photo gallery** — horizontal scrollable gallery of all profile photos on the profile screen
 - **My Reels** section on profile with horizontal thumbnail carousel
 - Preference management (age range, distance, interests)
 - **Invite friends** sharing flow
@@ -66,14 +70,21 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 - Account deletion (GDPR/App Store compliant)
 - Privacy policy and terms of service
 
+### Onboarding
+- **Permissions gate** — location, notification, camera, and photo library permissions requested before profile setup
+- **Face-validated photo uploads** — photos rejected if no face detected via Vision framework
+- **University picker** with API-driven autocomplete and trending suggestions
+
 ### Infrastructure
 - **Deep linking** support for navigating to profiles, matches, and reels
 - **Network monitoring** with connectivity status
 - **Network metrics** tracking for API performance with circuit breaker
 - **Push notification** management with background fetch
-- **Local caching** for offline data persistence
+- **Local caching** with AES-GCM encryption for offline data persistence
+- **Audio session management** with Bluetooth routing for calls, reels, and media
 - **Structured logging** via `NavLog` with categories
-- **HEIF/WebP image decoding** support
+- **HEIF/WebP/DNG/RAW image decoding** support via CIImage fallback
+- **Graceful task cancellation** — SwiftUI `.task` cancellations handled without disrupting auth state
 
 ## Architecture
 
@@ -108,7 +119,7 @@ nava/
 │   │       │   └── ModeratedPhotoView.swift   # Photo with moderation overlay
 │   │       ├── Extensions/
 │   │       │   ├── Array+Safe.swift           # Safe array subscript
-│   │       │   └── ImageDecoding.swift        # HEIF/WebP image format support
+│   │       │   └── ImageDecoding.swift        # Image decoding, face detection, face matching
 │   │       ├── DeepLink.swift                 # Deep link routing
 │   │       ├── LocalCache.swift               # Disk-based caching
 │   │       └── Logger.swift                   # Structured logging (NavLog)
@@ -129,6 +140,7 @@ nava/
 │   │       ├── NetworkMetrics.swift           # API latency/error tracking
 │   │       ├── PushNotificationManager.swift  # APNs registration + handling
 │   │       ├── NotificationOutcome.swift      # Notification action results
+│   │       ├── AudioSessionManager.swift      # Audio session + Bluetooth routing
 │   │       ├── ReelUploadService.swift        # Parallel pipeline reel upload (compress → filter → upload)
 │   │       └── VideoFilter.swift              # 7-filter enum with CIFilter + AVVideoComposition export
 │   │
@@ -161,8 +173,9 @@ nava/
 │           │   ├── LandingView.swift          # Welcome screen
 │           │   ├── LoginView.swift            # Phone number entry
 │           │   ├── OtpVerificationView.swift  # OTP input
-│           │   ├── UpdateProfileView.swift    # Onboarding profile setup
-│           │   └── UniversityPickerView.swift # University autocomplete picker
+│           │   ├── UpdateProfileView.swift    # Onboarding profile setup + face validation
+│           │   ├── UniversityPickerView.swift # University autocomplete picker
+│           │   └── PermissionsGateView.swift  # Location, notification, camera permissions
 │           ├── Settings/
 │           │   ├── SettingsView.swift         # Settings menu
 │           │   ├── EditProfileView.swift      # Edit profile with university picker
@@ -173,7 +186,7 @@ nava/
 │           ├── Profile/
 │           │   └── ProfileView.swift          # User profile with My Reels section
 │           ├── Verification/
-│           │   ├── SelfieVerificationView.swift      # Liveness selfie check
+│           │   ├── SelfieVerificationView.swift      # Selfie check + face matching vs profile photos
 │           │   ├── StudentVerificationView.swift     # University email OTP (multi-step)
 │           │   ├── StudentIDVerificationView.swift   # Student ID photo upload
 │           │   ├── AlumniVerificationView.swift      # Alumni verification flow
@@ -216,6 +229,8 @@ nava app target  (entry point — depends on all packages)
 | Location | CoreLocation with backend sync |
 | Media | `AVPlayer` for reels, `AVAssetExportSession` + `AVVideoComposition` for video filters, `AsyncImage` for photos |
 | Image Processing | CoreImage (`CIFilter`) for real-time video filters |
+| Face Detection | Vision framework (`VNDetectFaceRectanglesRequest`, `VNGenerateImageFeaturePrintRequest`) |
+| Encryption | CryptoKit (AES-GCM) for local cache |
 | Connectivity | `NWPathMonitor` for network status |
 
 ## Backend
@@ -241,7 +256,7 @@ This app connects to a [Rust/Axum backend](https://github.com/rohitkarumanchi745
 4. Build and run on simulator or device
 
 ### Environment Configuration
-- **Debug builds**: connect to `http://127.0.0.1:8080` (local backend)
+- **Debug builds**: connect to `http://192.168.1.103:8080` (local backend via Wi-Fi IP — update to your Mac's IP for physical device testing)
 - **Release builds**: connect to `https://api.nava.app` (production)
 
 Configure in `Packages/NavNetworking/Sources/NavNetworking/AppConfig.swift`.
@@ -250,7 +265,7 @@ Configure in `Packages/NavNetworking/Sources/NavNetworking/AppConfig.swift`.
 
 | Feature | Endpoint | Method |
 |---------|----------|--------|
-| Auth | `/send-otp`, `/verify-otp` | POST |
+| Auth | `/send-otp`, `/verify-otp`, `/refresh` | POST |
 | Profile | `/update-profile`, `/profile/me`, `/profile/:id` | POST, GET |
 | Discovery | GraphQL `discover`, `likeUser`, `passUser` | POST |
 | Super Like | `/match/super-like` | POST |
@@ -262,6 +277,7 @@ Configure in `Packages/NavNetworking/Sources/NavNetworking/AppConfig.swift`.
 | Payments | `/api/payments/verify-apple` | POST |
 | Location | `/location/update` | POST |
 | Verification | `/verify/selfie`, `/student/verify`, `/student/verify-id` | POST |
+| Notifications | `/api/notifications/register-device` | POST |
 | Account | `/account/delete` | POST |
 
 ## License

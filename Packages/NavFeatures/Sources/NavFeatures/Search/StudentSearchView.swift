@@ -675,7 +675,7 @@ struct StudentSearchView: View {
             let result: SearchSuggestions = try await APIService.shared.get(path: "/search/students/suggestions")
             suggestions = result
         } catch {
-            suggestions = SearchSuggestions.demo
+            suggestions = nil
         }
         isLoading = false
     }
@@ -736,24 +736,7 @@ struct StudentSearchView: View {
         }
     }
 
-    /// Filters demo data to match active filters (university, name query, etc.)
-    private func filterDemos() -> [StudentResult] {
-        var demos = StudentResult.demos
-        if !filters.university.isEmpty {
-            demos = demos.filter { ($0.university ?? "").localizedCaseInsensitiveContains(filters.university) }
-        }
-        if !filters.city.isEmpty {
-            demos = demos.filter { ($0.city ?? "").localizedCaseInsensitiveContains(filters.city) }
-        }
-        let q = debouncedSearch.trimmingCharacters(in: .whitespaces).lowercased()
-        if !q.isEmpty {
-            demos = demos.filter {
-                ($0.name ?? "").lowercased().contains(q) ||
-                ($0.university ?? "").lowercased().contains(q)
-            }
-        }
-        return demos.isEmpty ? StudentResult.demos : demos
-    }
+    private func filterDemos() -> [StudentResult] { [] }
 
     private func searchUniversitiesForAutocomplete(query: String) async {
         let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? query
@@ -763,11 +746,7 @@ struct StudentSearchView: View {
             )
             apiUniversities = response.universities.map(\.displayName)
         } catch {
-            // Fallback: filter local demo data
-            let lower = query.lowercased()
-            apiUniversities = UniversitySearchResult.demos
-                .filter { $0.name.lowercased().contains(lower) || ($0.city?.lowercased().contains(lower) ?? false) }
-                .map(\.displayName)
+            apiUniversities = []
         }
     }
 }

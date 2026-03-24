@@ -75,6 +75,16 @@ struct DiscoverView: View {
                             .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 1))
                     }
 
+                    NavigationLink(destination: StudentSearchView()) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 20))
+                            .foregroundColor(.white.opacity(0.8))
+                            .frame(width: 40, height: 40)
+                            .background(.white.opacity(0.1))
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 1))
+                    }
+
                     NavigationLink(destination: SentLikesView()) {
                         Image(systemName: "heart.text.square")
                             .font(.system(size: 20))
@@ -674,7 +684,7 @@ struct DiscoverView: View {
                     }
                     LocalCache.shared.save(profiles, forKey: .discoverFeed)
                 } else {
-                    profiles = DiscoverProfile.demos
+                    profiles = []
                 }
             } catch let apiError as APIError {
                 NavLog.error("Discover fetch failed: \(apiError.localizedDescription)", category: .network)
@@ -683,7 +693,7 @@ struct DiscoverView: View {
                         profiles = cached
                     } else {
                         errorMessage = apiError.errorDescription
-                        profiles = DiscoverProfile.demos
+                        profiles = []
                     }
                 }
             } catch {
@@ -693,7 +703,7 @@ struct DiscoverView: View {
                         profiles = cached
                     } else {
                         errorMessage = "Could not load profiles. Please try again."
-                        profiles = DiscoverProfile.demos
+                        profiles = []
                     }
                 }
             }

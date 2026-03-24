@@ -363,9 +363,7 @@ struct ReelConversationView: View {
             canRequestMatch = response.canRequestMatch
             matchId = response.matchId
         } catch {
-            // Demo fallback
-            messages = ReelThreadMessage.demoThread()
-            matchStatus = .chatting
+            messages = []
         }
         isLoading = false
     }

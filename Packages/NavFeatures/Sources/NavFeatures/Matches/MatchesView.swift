@@ -443,13 +443,13 @@ struct MatchesView: View {
                         message: m["message"] as? String
                     )
                 }
-                likedProfiles = fetched.isEmpty ? LikedProfile.demos : fetched
+                likedProfiles = fetched
             } else {
-                likedProfiles = LikedProfile.demos
+                likedProfiles = []
             }
         } catch {
             if likedProfiles.isEmpty {
-                likedProfiles = LikedProfile.demos
+                likedProfiles = []
             }
         }
         isLoading = false
@@ -481,13 +481,13 @@ struct MatchesView: View {
                         likedAt: formatTimestamp(item["likedAt"] as? String) ?? ""
                     )
                 }
-                sentLikes = fetched.isEmpty ? SentLikeProfile.demos : fetched
+                sentLikes = fetched
             } else {
-                sentLikes = SentLikeProfile.demos
+                sentLikes = []
             }
         } catch {
             if sentLikes.isEmpty {
-                sentLikes = SentLikeProfile.demos
+                sentLikes = []
             }
         }
         isSentLoading = false

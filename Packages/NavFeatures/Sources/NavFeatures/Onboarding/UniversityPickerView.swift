@@ -349,9 +349,11 @@ struct UniversityPickerView: View {
                 path += "&country=\(cc)"
             }
             let response: UniversitySearchResponse = try await APIService.shared.get(path: path)
+            NavLog.info("University nearby: got \(response.universities.count) results", category: .general)
             results = response.universities
         } catch {
-            results = UniversitySearchResult.demos
+            NavLog.error("University nearby decode error: \(error)", category: .general)
+            results = []
         }
         isSearching = false
     }
@@ -366,18 +368,14 @@ struct UniversityPickerView: View {
                 path += "&country=\(cc)"
             }
             let response: UniversitySearchResponse = try await APIService.shared.get(path: path)
+            NavLog.info("University search '\(query)': got \(response.universities.count) results", category: .general)
             // Only update if search text hasn't changed
             if searchText.trimmingCharacters(in: .whitespaces).lowercased().contains(query.lowercased().prefix(3)) {
                 results = response.universities
             }
         } catch {
-            // Fallback to demo data filtered locally
-            let query = query.lowercased()
-            results = UniversitySearchResult.demos.filter {
-                $0.name.lowercased().contains(query) ||
-                ($0.shortName?.lowercased().contains(query) ?? false) ||
-                ($0.city?.lowercased().contains(query) ?? false)
-            }
+            NavLog.error("University search decode error: \(error)", category: .general)
+            results = []
         }
         isSearching = false
     }

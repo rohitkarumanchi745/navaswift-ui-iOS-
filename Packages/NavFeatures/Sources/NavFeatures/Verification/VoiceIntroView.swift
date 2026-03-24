@@ -188,7 +188,7 @@ struct VoiceIntroView: View {
 
     private func playExistingIntro(_ urlString: String) {
         if isPlayingExisting { audioPlayer?.stop(); isPlayingExisting = false; return }
-        guard let url = URL(string: urlString) else { return }
+        guard let url = AppConfig.resolveMediaURL(urlString) else { return }
         Task {
             do {
                 let session = AVAudioSession.sharedInstance()

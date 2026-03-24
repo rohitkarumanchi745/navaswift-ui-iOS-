@@ -56,6 +56,16 @@ struct ProfileView: View {
     @State private var myReels: [MyReelItem] = []
     @State private var isLoadingReels = false
     @State private var showUploadReel = false
+    @State private var selectedReelIndex: Int = 0
+    @State private var showReelPlayer = false
+    @State private var showReelInbox = false
+
+    // Reel Activity
+    @State private var reelActivity: [ReelActivityItem] = []
+    @State private var reelTotalLikes = 0
+    @State private var reelTotalViews = 0
+    @State private var reelTotalMessages = 0
+    @State private var isLoadingReelActivity = false
 
     var body: some View {
         ZStack {
@@ -219,8 +229,24 @@ struct ProfileView: View {
             UploadReelView()
                 .environmentObject(uploadService)
         }
+        .sheet(isPresented: $showReelInbox) {
+            NavigationStack {
+                ReelInboxView()
+            }
+        }
+        .fullScreenCover(isPresented: $showReelPlayer) {
+            MyReelsPlayerView(
+                reels: myReels,
+                startIndex: selectedReelIndex,
+                userName: auth.user?.name ?? "You",
+                userPhoto: auth.user?.photos?.first ?? ""
+            )
+        }
         .onReceive(NotificationCenter.default.publisher(for: ReelUploadService.didFinishUploadNotification)) { _ in
-            Task { await fetchMyReels() }
+            Task {
+                await fetchMyReels()
+                await fetchReelActivity()
+            }
         }
     }
 
@@ -928,6 +954,92 @@ struct ProfileView: View {
             }
             .padding(.top, 16)
 
+            // Reel Engagement Summary
+            if reelTotalLikes > 0 || reelTotalViews > 0 || reelTotalMessages > 0 {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Reel Engagement")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 20)
+
+                    VStack(spacing: 0) {
+                        if reelTotalLikes > 0 {
+                            HStack(spacing: 12) {
+                                Image(systemName: "heart.fill")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(Color(hex: "FF8A9E"))
+                                    .frame(width: 32, height: 32)
+                                    .background(Color(hex: "FF8A9E").opacity(0.15))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(reelTotalLikes) likes on your reels")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(.white)
+                                    Text("total")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.white.opacity(0.35))
+                                }
+                                Spacer()
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                        }
+
+                        if reelTotalMessages > 0 {
+                            HStack(spacing: 12) {
+                                Image(systemName: "bubble.left.fill")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(Color(hex: "C9A0DC"))
+                                    .frame(width: 32, height: 32)
+                                    .background(Color(hex: "C9A0DC").opacity(0.15))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(reelTotalMessages) messages on your reels")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(.white)
+                                    Text("total")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.white.opacity(0.35))
+                                }
+                                Spacer()
+                                Button { showReelInbox = true } label: {
+                                    Text("View")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundColor(Color(hex: "C9A0DC"))
+                                }
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                        }
+
+                        if reelTotalViews > 0 {
+                            HStack(spacing: 12) {
+                                Image(systemName: "eye.fill")
+                                    .font(.system(size: 13))
+                                    .foregroundColor(Color(hex: "7BB3FF"))
+                                    .frame(width: 32, height: 32)
+                                    .background(Color(hex: "7BB3FF").opacity(0.15))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("\(reelTotalViews) views on your reels")
+                                        .font(.system(size: 14, weight: .medium))
+                                        .foregroundColor(.white)
+                                    Text("total")
+                                        .font(.system(size: 11))
+                                        .foregroundColor(.white.opacity(0.35))
+                                }
+                                Spacer()
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                        }
+                    }
+                    .background(.white.opacity(0.04))
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .padding(.horizontal, 20)
+                }
+            }
+
             // Insights
             HStack(alignment: .top, spacing: 12) {
                 Image(systemName: "lightbulb.max.fill")
@@ -962,6 +1074,21 @@ struct ProfileView: View {
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(.white)
                 Spacer()
+
+                Button { showReelInbox = true } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: "tray.fill")
+                            .font(.system(size: 12, weight: .bold))
+                        Text("Inbox")
+                            .font(.system(size: 13, weight: .semibold))
+                    }
+                    .foregroundColor(Color(hex: "7BB3FF"))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color(hex: "7BB3FF").opacity(0.15))
+                    .clipShape(Capsule())
+                }
+
                 Button { showUploadReel = true } label: {
                     HStack(spacing: 5) {
                         Image(systemName: "plus")
@@ -1022,23 +1149,198 @@ struct ProfileView: View {
                     GridItem(.flexible(), spacing: 4)
                 ]
                 LazyVGrid(columns: columns, spacing: 4) {
-                    ForEach(myReels) { reel in
-                        myReelThumbnail(reel)
+                    ForEach(Array(myReels.enumerated()), id: \.element.id) { index, reel in
+                        Button {
+                            selectedReelIndex = index
+                            showReelPlayer = true
+                        } label: {
+                            myReelThumbnail(reel)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, 20)
             }
+
+            // Reel engagement stats
+            if !myReels.isEmpty {
+                reelEngagementStats
+            }
+
+            // Recent reel activity
+            if !myReels.isEmpty {
+                reelActivitySection
+            }
         }
         .padding(.top, 16)
-        .task { await fetchMyReels() }
+        .task {
+            await fetchMyReels()
+            await fetchReelActivity()
+        }
+    }
+
+    // MARK: - Reel Engagement Stats
+
+    private var reelEngagementStats: some View {
+        HStack(spacing: 0) {
+            reelStatItem(icon: "heart.fill", color: "FF8A9E", value: reelTotalLikes, label: "Likes")
+            reelStatItem(icon: "eye.fill", color: "7BB3FF", value: reelTotalViews, label: "Views")
+            reelStatItem(icon: "bubble.left.fill", color: "C9A0DC", value: reelTotalMessages, label: "Messages")
+        }
+        .padding(.vertical, 14)
+        .background(.white.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+    }
+
+    private func reelStatItem(icon: String, color: String, value: Int, label: String) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundColor(Color(hex: color))
+            Text(formatCompact(value))
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(.white)
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundColor(.white.opacity(0.4))
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Reel Activity Section (inside My Reels)
+
+    private var reelActivitySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Reel Activity")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.white)
+                Spacer()
+                if !reelActivity.isEmpty {
+                    NavigationLink {
+                        ReelActivityListView(initialActivities: reelActivity)
+                    } label: {
+                        Text("See All")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(Color(hex: "9B7FCA"))
+                    }
+                }
+            }
+            .padding(.horizontal, 20)
+
+            if isLoadingReelActivity {
+                HStack { Spacer(); ProgressView().tint(.white); Spacer() }
+                    .padding(.vertical, 20)
+            } else if reelActivity.isEmpty {
+                HStack(spacing: 10) {
+                    Image(systemName: "bell")
+                        .font(.system(size: 18))
+                        .foregroundColor(.white.opacity(0.2))
+                    Text("No activity yet on your reels")
+                        .font(.system(size: 14))
+                        .foregroundColor(.white.opacity(0.4))
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(reelActivity.prefix(5)) { item in
+                        reelActivityRow(item)
+
+                        if item.id != reelActivity.prefix(5).last?.id {
+                            Rectangle()
+                                .fill(.white.opacity(0.06))
+                                .frame(height: 1)
+                                .padding(.leading, 66)
+                        }
+                    }
+                }
+                .background(.white.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+                .padding(.horizontal, 20)
+            }
+        }
+        .padding(.top, 16)
+    }
+
+    private func reelActivityRow(_ item: ReelActivityItem) -> some View {
+        HStack(spacing: 12) {
+            ZStack(alignment: .bottomTrailing) {
+                AsyncImage(url: AppConfig.resolvePhotoURL(item.actorPhoto)) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    Circle().fill(.white.opacity(0.08))
+                }
+                .frame(width: 42, height: 42)
+                .clipShape(Circle())
+
+                Image(systemName: item.icon)
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 18, height: 18)
+                    .background(Color(hex: item.iconColor))
+                    .clipShape(Circle())
+                    .overlay(Circle().stroke(Color(hex: "1A1B2E"), lineWidth: 2))
+                    .offset(x: 4, y: 4)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(item.actorName)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                    +
+                    Text(" \(item.activityDescription)")
+                        .font(.system(size: 14))
+                        .foregroundColor(.white.opacity(0.6))
+
+                    Spacer()
+                }
+
+                if let caption = item.reelCaption, !caption.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "play.rectangle.fill")
+                            .font(.system(size: 9))
+                        Text(caption)
+                            .font(.system(size: 11))
+                            .lineLimit(1)
+                    }
+                    .foregroundColor(.white.opacity(0.3))
+                }
+
+                Text(relativeTimeForActivity(item.createdAt))
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(0.3))
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    private func relativeTimeForActivity(_ dateStr: String) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        guard let date = formatter.date(from: dateStr) else { return "" }
+        let interval = Date().timeIntervalSince(date)
+        if interval < 60 { return "just now" }
+        if interval < 3600 { return "\(Int(interval / 60))m ago" }
+        if interval < 86400 { return "\(Int(interval / 3600))h ago" }
+        if interval < 604800 { return "\(Int(interval / 86400))d ago" }
+        return "\(Int(interval / 604800))w ago"
     }
 
     private func myReelThumbnail(_ reel: MyReelItem) -> some View {
         ZStack(alignment: .bottomLeading) {
             if let thumbnail = reel.thumbnail {
-                Image(uiImage: thumbnail)
-                    .resizable()
-                    .scaledToFill()
+                GeometryReader { geo in
+                    Image(uiImage: thumbnail)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .clipped()
+                }
             } else {
                 LinearGradient(
                     colors: [Color(hex: "2D1B4E"), Color(hex: "1A1B2E")],
@@ -1052,7 +1354,7 @@ struct ProfileView: View {
                 }
             }
         }
-        .frame(height: 160)
+        .aspectRatio(3/4, contentMode: .fit)
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .overlay(alignment: .bottomLeading) {
             HStack(spacing: 4) {
@@ -1126,20 +1428,49 @@ struct ProfileView: View {
         isLoadingReels = false
     }
 
+    private func fetchReelActivity() async {
+        isLoadingReelActivity = true
+        do {
+            let response: ReelActivityResponse = try await APIService.shared.get(
+                path: "/reels/activity?limit=20"
+            )
+            reelActivity = response.activities
+            reelTotalLikes = response.totalLikes ?? myReels.reduce(0) { $0 + $1.likeCount }
+            reelTotalViews = response.totalViews ?? myReels.reduce(0) { $0 + $1.viewCount }
+            reelTotalMessages = response.totalMessages ?? 0
+
+            LocalCache.shared.save(response, forKey: .reelActivity)
+        } catch {
+            // Try cached data
+            if let cached = LocalCache.shared.load(ReelActivityResponse.self, forKey: .reelActivity) {
+                reelActivity = cached.activities
+                reelTotalLikes = cached.totalLikes ?? 0
+                reelTotalViews = cached.totalViews ?? 0
+                reelTotalMessages = cached.totalMessages ?? 0
+            } else {
+                // Compute totals from myReels data at minimum
+                reelTotalLikes = myReels.reduce(0) { $0 + $1.likeCount }
+                reelTotalViews = myReels.reduce(0) { $0 + $1.viewCount }
+                reelActivity = []
+            }
+        }
+        isLoadingReelActivity = false
+    }
+
     private func generateThumbnail(from videoUrl: String?, fallback thumbnailUrl: String?) async -> UIImage? {
         // Try thumbnail URL first
-        if let thumbStr = thumbnailUrl, let url = URL(string: thumbStr) {
+        if let url = AppConfig.resolveMediaURL(thumbnailUrl) {
             if let (data, _) = try? await URLSession.shared.data(from: url),
                let image = UIImage(data: data) {
                 return image
             }
         }
         // Generate from video
-        guard let urlStr = videoUrl, let url = URL(string: urlStr) else { return nil }
+        guard let url = AppConfig.resolveMediaURL(videoUrl) else { return nil }
         let asset = AVURLAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
-        generator.maximumSize = CGSize(width: 300, height: 300)
+        generator.maximumSize = CGSize(width: 600, height: 800)
         do {
             let (cgImage, _) = try await generator.image(at: .zero)
             return UIImage(cgImage: cgImage)
@@ -1155,7 +1486,7 @@ struct ProfileView: View {
             query {
                 matches {
                     id
-                    partner { id name age photos }
+                    partner { id name age photos isOnline lastSeen }
                     isMutual
                     matchedAt
                 }
@@ -1173,6 +1504,8 @@ struct ProfileView: View {
                     let ts = formatTimestamp(m["matchedAt"] as? String)
 
                     if isMutual {
+                        let online = partner["isOnline"] as? Bool ?? false
+                        let lastSeenDate = parseISO(partner["lastSeen"] as? String)
                         convos.append(MatchProfile(
                             id: "\(partner["id"] ?? "")",
                             matchId: "\(m["id"] ?? "")",
@@ -1182,8 +1515,9 @@ struct ProfileView: View {
                             lastMessage: nil,
                             timestamp: ts,
                             unreadCount: 0,
-                            isOnline: false,
-                            isMutual: true
+                            isOnline: online,
+                            isMutual: true,
+                            lastSeen: lastSeenDate
                         ))
                     } else {
                         likes.append(LikedProfile(
@@ -1205,8 +1539,8 @@ struct ProfileView: View {
             }
         } catch {
             if likedProfiles.isEmpty && recentMatches.isEmpty {
-                likedProfiles = LikedProfile.demos
-                recentMatches = Array(MatchProfile.demos.prefix(3))
+                likedProfiles = []
+                recentMatches = []
                 statsLikes = likedProfiles.count
                 statsMatches = likedProfiles.count + recentMatches.count
                 statsChats = recentMatches.count
@@ -1223,6 +1557,13 @@ struct ProfileView: View {
         let rel = RelativeDateTimeFormatter()
         rel.unitsStyle = .abbreviated
         return rel.localizedString(for: date, relativeTo: Date())
+    }
+
+    private func parseISO(_ string: String?) -> Date? {
+        guard let string else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: string)
     }
 
     // MARK: - Footer
@@ -1273,6 +1614,118 @@ struct ProfileView: View {
         .background(.white.opacity(0.06))
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .padding(.horizontal, 20)
+    }
+}
+
+// MARK: - My Reels Player
+
+private struct MyReelsPlayerView: View {
+    let userName: String
+    let userPhoto: String
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var pool = ReelPlayerPool()
+    @State private var currentIndex: Int?
+    @State private var playerReels: [Reel]
+
+    init(reels: [MyReelItem], startIndex: Int, userName: String, userPhoto: String) {
+        self.userName = userName
+        self.userPhoto = userPhoto
+        _currentIndex = State(initialValue: startIndex)
+        _playerReels = State(initialValue: reels.map { item in
+            Reel(
+                id: item.id,
+                userId: "",
+                userName: userName,
+                userAge: 0,
+                userPhoto: userPhoto,
+                videoUrl: item.videoUrl,
+                caption: item.caption,
+                likes: item.likeCount,
+                isLiked: false,
+                isVerified: false,
+                location: "",
+                music: nil
+            )
+        })
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            if playerReels.isEmpty {
+                VStack(spacing: 16) {
+                    Image(systemName: "play.rectangle.fill")
+                        .font(.system(size: 40))
+                        .foregroundColor(.white.opacity(0.3))
+                    Text("No reels to play")
+                        .foregroundColor(.white.opacity(0.5))
+                }
+            } else {
+                GeometryReader { geo in
+                    ScrollView(.vertical, showsIndicators: false) {
+                        LazyVStack(spacing: 0) {
+                            ForEach(Array(playerReels.enumerated()), id: \.element.id) { index, _ in
+                                ReelCard(
+                                    reel: Binding(
+                                        get: { playerReels[index] },
+                                        set: { playerReels[index] = $0 }
+                                    ),
+                                    isActive: index == currentIndex,
+                                    player: pool.player(for: index),
+                                    onProfileTap: nil
+                                )
+                                .frame(width: geo.size.width, height: geo.size.height)
+                                .id(index)
+                            }
+                        }
+                        .scrollTargetLayout()
+                    }
+                    .scrollTargetBehavior(.paging)
+                    .scrollPosition(id: $currentIndex)
+                    .frame(width: geo.size.width, height: geo.size.height)
+                }
+                .ignoresSafeArea()
+            }
+
+            // Header overlay
+            VStack {
+                HStack {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.white)
+                            .frame(width: 36, height: 36)
+                            .background(.black.opacity(0.4))
+                            .clipShape(Circle())
+                    }
+
+                    Text("My Reels")
+                        .font(.headline)
+                        .foregroundColor(.white)
+
+                    Spacer()
+
+                    if !playerReels.isEmpty {
+                        Text("\((currentIndex ?? 0) + 1)/\(playerReels.count)")
+                            .font(.caption)
+                            .foregroundColor(.white.opacity(0.7))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(.black.opacity(0.4))
+                            .clipShape(Capsule())
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.top, 8)
+                Spacer()
+            }
+        }
+        .task { pool.activate(currentIndex: currentIndex ?? 0, urls: playerReels.map { $0.videoUrl }) }
+        .onChange(of: currentIndex) { _, idx in
+            pool.activate(currentIndex: idx ?? 0, urls: playerReels.map { $0.videoUrl })
+        }
+        .onDisappear { pool.pauseAll() }
     }
 }
 

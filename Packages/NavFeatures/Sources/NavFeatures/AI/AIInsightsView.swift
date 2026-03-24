@@ -361,8 +361,7 @@ struct AIInsightsView: View {
             )
             insights = result
         } catch {
-            // Fallback to demo data
-            insights = AIInsightsResponse.demo
+            insights = nil
         }
         isLoading = false
     }

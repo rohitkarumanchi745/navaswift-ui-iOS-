@@ -1108,12 +1108,13 @@ public struct UpdateProfileView: View {
 
 struct OnboardingSelfieView: View {
     @EnvironmentObject var auth: AuthManager
+    @StateObject private var camera = SelfieCameraModel()
     @State private var selfieImage: PlatformImage? = nil
-    @State private var selectedItem: PhotosPickerItem? = nil
     @State private var isSubmitting = false
     @State private var showAlert = false
     @State private var alertMessage = ""
     @State private var floatOffset: CGFloat = 0
+    @State private var flashOpacity: Double = 0
 
     let onComplete: () -> Void
 
@@ -1152,76 +1153,145 @@ struct OnboardingSelfieView: View {
                     .foregroundStyle(.white)
                     .padding(.bottom, 8)
 
-                Text("Take a selfie to earn a verified badge\nand build trust with matches")
+                Text("Take a real-time selfie to earn a verified\nbadge and build trust with matches")
                     .font(.system(size: 15, design: .rounded))
                     .foregroundStyle(.white.opacity(0.5))
                     .multilineTextAlignment(.center)
                     .padding(.bottom, 32)
 
-                // Selfie capture area
-                PhotosPicker(selection: $selectedItem, matching: .images) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 24)
-                            .fill(.white.opacity(0.06))
-                            .frame(height: 240)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 24)
-                                    .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-                            )
-
-                        if let image = selfieImage {
-                            platformImageView(image)
-                                .resizable()
-                                .scaledToFill()
-                                .frame(height: 240)
-                                .clipShape(RoundedRectangle(cornerRadius: 24))
-                        } else {
-                            VStack(spacing: 12) {
-                                Image(systemName: "camera.fill")
-                                    .font(.system(size: 36))
-                                    .foregroundStyle(.white.opacity(0.3))
-                                Text("Tap to take a selfie")
-                                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                                    .foregroundStyle(.white.opacity(0.3))
+                // Live camera preview or captured photo
+                ZStack {
+                    if camera.permissionDenied {
+                        // Camera permission not granted
+                        VStack(spacing: 16) {
+                            Image(systemName: "camera.fill")
+                                .font(.system(size: 40))
+                                .foregroundStyle(.white.opacity(0.3))
+                            Text("Camera Access Required")
+                                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.white)
+                            Text("Please enable camera access in Settings to take a selfie.")
+                                .font(.system(size: 13, design: .rounded))
+                                .foregroundStyle(.white.opacity(0.5))
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 24)
+                            Button {
+                                if let url = URL(string: UIApplication.openSettingsURLString) {
+                                    UIApplication.shared.open(url)
+                                }
+                            } label: {
+                                Text("Open Settings")
+                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(Color(hex: "1A1B2E"))
+                                    .padding(.horizontal, 20)
+                                    .padding(.vertical, 10)
+                                    .background(.white)
+                                    .clipShape(Capsule())
                             }
                         }
-                    }
-                }
-                .onChange(of: selectedItem) { _, item in
-                    Task {
-                        if let data = try? await item?.loadTransferable(type: Data.self),
-                           let image = decodeImageData(data) {
-                            selfieImage = image
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.white.opacity(0.06))
+                    } else if let image = selfieImage {
+                        platformImageView(image)
+                            .resizable()
+                            .scaledToFill()
+                    } else {
+                        SelfieCameraPreview(session: camera.session)
+
+                        // Face guide hint
+                        VStack {
+                            Spacer()
+                            HStack(spacing: 6) {
+                                Image(systemName: "face.smiling")
+                                    .font(.system(size: 13))
+                                Text("Position your face in the frame")
+                                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                            }
+                            .foregroundStyle(.white.opacity(0.8))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background(.ultraThinMaterial)
+                            .clipShape(Capsule())
+                            .padding(.bottom, 12)
                         }
                     }
+
+                    // Shutter flash
+                    Color.white
+                        .opacity(flashOpacity)
+                        .allowsHitTesting(false)
                 }
+                .frame(height: 280)
+                .clipShape(RoundedRectangle(cornerRadius: 24))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24)
+                        .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+                )
                 .padding(.bottom, 24)
 
-                // Verify button
-                Button { verifySelfie() } label: {
-                    Group {
-                        if isSubmitting {
-                            HStack(spacing: 8) {
-                                ProgressView().tint(Color(hex: "1A1B2E"))
-                                Text("Verifying...")
-                                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                if selfieImage == nil && !camera.permissionDenied {
+                    // Capture button
+                    Button { takeSelfie() } label: {
+                        HStack(spacing: 8) {
+                            ZStack {
+                                Circle()
+                                    .strokeBorder(.white, lineWidth: 3)
+                                    .frame(width: 28, height: 28)
+                                Circle()
+                                    .fill(.white)
+                                    .frame(width: 20, height: 20)
                             }
-                        } else {
-                            HStack(spacing: 8) {
-                                Image(systemName: "checkmark.shield.fill")
-                                Text("Verify & Continue")
-                                    .font(.system(size: 17, weight: .bold, design: .rounded))
-                            }
+                            Text("Take Selfie")
+                                .font(.system(size: 17, weight: .bold, design: .rounded))
                         }
+                        .foregroundStyle(Color(hex: "1A1B2E"))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 18)
+                        .background(camera.isReady ? .white : .white.opacity(0.3))
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
                     }
-                    .foregroundStyle(Color(hex: "1A1B2E"))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 18)
-                    .background(selfieImage != nil && !isSubmitting ? .white : .white.opacity(0.3))
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .disabled(!camera.isReady)
+                    .padding(.bottom, 16)
+                } else {
+                    // Retake / Verify buttons
+                    HStack(spacing: 12) {
+                        Button {
+                            selfieImage = nil
+                            camera.reset()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.counterclockwise")
+                                Text("Retake")
+                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            }
+                            .foregroundStyle(.white.opacity(0.7))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .strokeBorder(.white.opacity(0.25), lineWidth: 1.5)
+                            )
+                        }
+
+                        Button { verifySelfie() } label: {
+                            HStack(spacing: 8) {
+                                if isSubmitting {
+                                    ProgressView().tint(Color(hex: "1A1B2E"))
+                                }
+                                Image(systemName: "checkmark.shield.fill")
+                                Text(isSubmitting ? "Verifying..." : "Verify & Continue")
+                                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                            }
+                            .foregroundStyle(Color(hex: "1A1B2E"))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(!isSubmitting ? .white : .white.opacity(0.3))
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                        }
+                        .disabled(isSubmitting)
+                    }
+                    .padding(.bottom, 16)
                 }
-                .disabled(selfieImage == nil || isSubmitting)
-                .padding(.bottom, 16)
 
                 // Skip button
                 Button {
@@ -1241,15 +1311,37 @@ struct OnboardingSelfieView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         .navigationBarBackButtonHidden(true)
         .onAppear {
+            camera.start()
             withAnimation(.easeInOut(duration: 4).repeatForever(autoreverses: true)) {
                 floatOffset = 20
             }
+        }
+        .onDisappear { camera.stop() }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            if camera.permissionDenied {
+                let status = AVCaptureDevice.authorizationStatus(for: .video)
+                if status == .authorized {
+                    camera.permissionDenied = false
+                    camera.start()
+                }
+            }
+        }
+        .onChange(of: camera.capturedPhoto) { _, photo in
+            if let photo { selfieImage = photo }
         }
         .alert("Verification", isPresented: $showAlert) {
             Button("Continue") { onComplete() }
         } message: {
             Text(alertMessage)
         }
+    }
+
+    private func takeSelfie() {
+        withAnimation(.easeOut(duration: 0.1)) { flashOpacity = 0.6 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            withAnimation(.easeIn(duration: 0.2)) { flashOpacity = 0 }
+        }
+        camera.capturePhoto()
     }
 
     private func verifySelfie() {
@@ -1259,12 +1351,13 @@ struct OnboardingSelfieView: View {
             // Check selfie contains a face
             guard imageContainsFace(image) else {
                 alertMessage = "No face detected in your selfie. Please take a clearer photo."
+                selfieImage = nil
+                camera.reset()
                 isSubmitting = false; showAlert = true; return
             }
 
             // Compare selfie against profile photos (skip for demo mode or no photos)
-            if let photos = auth.user?.photos, !photos.isEmpty,
-               auth.token != nil && auth.token?.hasPrefix("demo-token") != true {
+            if let photos = auth.user?.photos, !photos.isEmpty, auth.token != nil {
                 let referenceImages = await downloadProfilePhotos(photos)
                 if !referenceImages.isEmpty {
                     let result = selfieFaceMatchesAnyReference(
@@ -1273,6 +1366,8 @@ struct OnboardingSelfieView: View {
                     )
                     guard result.matches else {
                         alertMessage = "Your selfie doesn't appear to match your profile photos. Please take a selfie of yourself."
+                        selfieImage = nil
+                        camera.reset()
                         isSubmitting = false; showAlert = true; return
                     }
                 }

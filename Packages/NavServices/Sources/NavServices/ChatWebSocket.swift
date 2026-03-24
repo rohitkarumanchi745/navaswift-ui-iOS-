@@ -19,6 +19,10 @@ public class ChatWebSocket: ObservableObject {
     @Published public var connectionState: ConnectionState = .disconnected
     @Published public var incomingMessages: [IncomingChatEvent] = []
 
+    /// Partner presence state — updated via WebSocket "presence" events
+    @Published public var partnerIsOnline: Bool = false
+    @Published public var partnerLastSeen: Date?
+
     /// Backward-compatible convenience accessor
     public var isConnected: Bool { connectionState == .connected }
 
@@ -33,6 +37,9 @@ public class ChatWebSocket: ObservableObject {
 
     /// Messages queued while disconnected, sent on reconnect
     private var pendingMessages: [[String: Any]] = []
+
+    /// Whether to broadcast our own online presence (respects privacy setting)
+    private var broadcastPresence = true
 
     /// Foreground observer
     private var foregroundObserver: NSObjectProtocol?
@@ -83,10 +90,13 @@ public class ChatWebSocket: ObservableObject {
         }
     }
 
-    public func connect(matchId: String, token: String) {
+    public func connect(matchId: String, token: String, showOnlineStatus: Bool = true) {
         self.matchId = matchId
         self.token = token
+        self.broadcastPresence = showOnlineStatus
         reconnectAttempts = 0
+        partnerIsOnline = false
+        partnerLastSeen = nil
         doConnect()
     }
 
@@ -113,6 +123,7 @@ public class ChatWebSocket: ObservableObject {
 
     public func disconnect() {
         NavLog.debug("WebSocket disconnecting", category: .chat)
+        sendPresence(online: false)
         pingTask?.cancel()
         pingTask = nil
         webSocketTask?.cancel(with: .normalClosure, reason: nil)
@@ -135,6 +146,13 @@ public class ChatWebSocket: ObservableObject {
     public func sendRead(messageId: Int) {
         let payload: [String: Any] = ["type": "read", "message_id": messageId]
         sendJSON(payload)
+    }
+
+    /// Sends our presence status. Respects the `broadcastPresence` privacy setting —
+    /// if disabled, we still send "offline" but never "online".
+    private func sendPresence(online: Bool) {
+        let status = (online && broadcastPresence) ? "online" : "offline"
+        sendJSON(["type": "presence", "status": status])
     }
 
     // MARK: - Private
@@ -192,6 +210,7 @@ public class ChatWebSocket: ObservableObject {
                         self.connectionState = .connected
                         self.reconnectAttempts = 0
                         NavLog.info("WebSocket connected for match \(self.matchId)", category: .chat)
+                        self.sendPresence(online: true)
                         self.flushPendingMessages()
                     }
 
@@ -213,6 +232,22 @@ public class ChatWebSocket: ObservableObject {
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let type = json["type"] as? String else {
             NavLog.debug("Received unparseable WebSocket message", category: .chat)
+            return
+        }
+
+        // Handle presence events: { "type": "presence", "status": "online"|"offline", "last_seen": "ISO8601" }
+        if type == "presence" {
+            let status = json["status"] as? String ?? ""
+            partnerIsOnline = (status == "online")
+            if let lastSeenStr = json["last_seen"] as? String {
+                let formatter = ISO8601DateFormatter()
+                formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+                partnerLastSeen = formatter.date(from: lastSeenStr)
+            }
+            if !partnerIsOnline && partnerLastSeen == nil {
+                partnerLastSeen = Date()
+            }
+            NavLog.debug("Partner presence: \(status)", category: .chat)
             return
         }
 

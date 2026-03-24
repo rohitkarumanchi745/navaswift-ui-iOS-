@@ -147,7 +147,7 @@ struct AlumniVerificationView: View {
                                 universitySearchTask?.cancel()
                                 if trimmed.isEmpty {
                                     if isUniversityFocused {
-                                        universityResults = UniversitySearchResult.demos
+                                        universityResults = []
                                         showUniversityResults = true
                                     } else {
                                         universityResults = []
@@ -164,7 +164,7 @@ struct AlumniVerificationView: View {
                             }
                             .onChange(of: isUniversityFocused) { _, focused in
                                 if focused && universityName.trimmingCharacters(in: .whitespaces).isEmpty {
-                                    universityResults = UniversitySearchResult.demos
+                                    universityResults = []
                                     showUniversityResults = true
                                 }
                             }
@@ -836,12 +836,7 @@ struct AlumniVerificationView: View {
                 universityResults = response.universities
             }
         } catch {
-            let lower = query.lowercased()
-            universityResults = UniversitySearchResult.demos.filter {
-                $0.name.lowercased().contains(lower) ||
-                ($0.shortName?.lowercased().contains(lower) ?? false) ||
-                ($0.city?.lowercased().contains(lower) ?? false)
-            }
+            universityResults = []
         }
     }
 

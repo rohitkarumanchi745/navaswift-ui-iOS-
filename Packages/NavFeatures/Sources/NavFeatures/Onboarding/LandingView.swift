@@ -91,28 +91,6 @@ public struct LandingView: View {
                             )
                     }
 
-                    #if DEBUG
-                    HStack(spacing: 12) {
-                        Button {
-                            auth.loginWithDemoUser()
-                        } label: {
-                            Text("Demo")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.4))
-                        }
-
-                        Text("·").foregroundStyle(.white.opacity(0.2))
-
-                        Button {
-                            auth.loginWithDemoNewUser()
-                        } label: {
-                            Text("Demo (New)")
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.4))
-                        }
-                    }
-                    .padding(.top, 4)
-                    #endif
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 50)
