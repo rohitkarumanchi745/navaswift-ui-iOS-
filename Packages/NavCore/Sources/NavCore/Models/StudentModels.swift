@@ -141,3 +141,42 @@ public struct StudentFilters {
     }
 }
 
+// MARK: - Hotspot
+
+public struct Hotspot: Codable, Identifiable {
+    public let id: String
+    public let name: String
+    public let category: String?
+    public let locality: String?
+    public let latitude: Double
+    public let longitude: Double
+
+    public init(name: String, category: String?, locality: String?,
+                latitude: Double, longitude: Double) {
+        self.id = "\(latitude),\(longitude)_\(name)"
+        self.name = name
+        self.category = category
+        self.locality = locality
+        self.latitude = latitude
+        self.longitude = longitude
+    }
+}
+
+// MARK: - Location Search Entry
+
+public struct LocationSearchEntry: Codable, Identifiable {
+    public let id: String
+    public let name: String
+    public let latitude: Double
+    public let longitude: Double
+    public let timestamp: Date
+
+    public init(name: String, latitude: Double, longitude: Double) {
+        self.id = UUID().uuidString
+        self.name = name
+        self.latitude = latitude
+        self.longitude = longitude
+        self.timestamp = Date()
+    }
+}
+

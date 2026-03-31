@@ -1,4 +1,5 @@
 import SwiftUI
+import MapKit
 import NavCore
 import NavNetworking
 import NavServices
@@ -6,6 +7,7 @@ import NavServices
 struct StudentSearchView: View {
     @EnvironmentObject var auth: AuthManager
     @EnvironmentObject var storeKit: StoreKitManager
+    @EnvironmentObject var locationManager: LocationManager
     @State private var searchText = ""
     @State private var debouncedSearch = ""
     @State private var filters = StudentFilters()
@@ -23,6 +25,9 @@ struct StudentSearchView: View {
     @State private var apiUniversities: [String] = []
     @State private var universitySearchTask: Task<Void, Never>?
     @State private var debounceTask: Task<Void, Never>?
+    @State private var nearbyHotspots: [Hotspot] = []
+    @State private var recentSearches: [LocationSearchEntry] = []
+    @State private var isLoadingHotspots = false
     @FocusState private var isSearchFocused: Bool
 
     private var isSearchActive: Bool {
@@ -126,7 +131,11 @@ struct StudentSearchView: View {
             }
         }
         .navigationBarHidden(true)
-        .task { await loadSuggestions() }
+        .task {
+            await loadSuggestions()
+            recentSearches = locationManager.loadSearchHistory()
+            await loadNearbyHotspots()
+        }
         .task(id: debouncedSearch) {
             if isSearchActive {
                 await performSearch(reset: true)
@@ -311,6 +320,33 @@ struct StudentSearchView: View {
 
     private var suggestionsSection: some View {
         VStack(alignment: .leading, spacing: 24) {
+            // Social card
+            socialSection
+
+            // Outdoor card
+            outdoorSection
+
+            // Hotspots Near You
+            if !nearbyHotspots.isEmpty {
+                hotspotsSection
+            } else if isLoadingHotspots {
+                VStack(alignment: .leading, spacing: 12) {
+                    sectionHeader("Hotspots Near You", icon: "mappin.circle.fill")
+                    HStack {
+                        Spacer()
+                        ProgressView()
+                            .tint(.white.opacity(0.5))
+                        Spacer()
+                    }
+                    .padding(.vertical, 20)
+                }
+            }
+
+            // Recent Places
+            if !recentSearches.isEmpty {
+                recentPlacesSection
+            }
+
             if let sug = suggestions {
                 // Trending Universities
                 if let unis = sug.trendingUniversities, !unis.isEmpty {
@@ -447,6 +483,184 @@ struct StudentSearchView: View {
                 .foregroundStyle(.white)
         }
         .padding(.horizontal, 20)
+    }
+
+    // MARK: - Social
+
+    private var socialSection: some View {
+        NavigationLink {
+            SocialHubView()
+                .environmentObject(locationManager)
+        } label: {
+            HStack(spacing: 14) {
+                LinearGradient(
+                    colors: [AppColors.purpleAccent, .pink],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .frame(width: 56, height: 56)
+                .mask(
+                    Image(systemName: "person.3.fill")
+                        .font(.system(size: 26))
+                )
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Social")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(.white)
+                    Text("Spots, Events & Playgrounds")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.3))
+            }
+            .padding(16)
+            .background(AppColors.darkCard)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(.white.opacity(0.08), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 20)
+    }
+
+    // MARK: - Outdoor
+
+    private var outdoorSection: some View {
+        NavigationLink {
+            OutdoorView()
+        } label: {
+            HStack(spacing: 14) {
+                LinearGradient(
+                    colors: [Color(hex: "4ECDC4"), Color(hex: "2D9B8E")],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .frame(width: 56, height: 56)
+                .mask(
+                    Image(systemName: "mountain.2.fill")
+                        .font(.system(size: 26))
+                )
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Outdoor")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundStyle(.white)
+                    Text("Trails, Spots & Adventures")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.3))
+            }
+            .padding(16)
+            .background(AppColors.darkCard)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(.white.opacity(0.08), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 20)
+    }
+
+    // MARK: - Hotspots Near You
+
+    private var hotspotsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Hotspots Near You", icon: "mappin.circle.fill")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(nearbyHotspots) { hotspot in
+                        Button {
+                            selectHotspot(hotspot)
+                        } label: {
+                            VStack(spacing: 6) {
+                                Image(systemName: "mappin.circle.fill")
+                                    .font(.system(size: 22))
+                                    .foregroundStyle(.orange)
+                                Text(hotspot.name)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.center)
+                                if let category = hotspot.category {
+                                    Text(category)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.white.opacity(0.4))
+                                        .lineLimit(1)
+                                }
+                                if let locality = hotspot.locality {
+                                    Text(locality)
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.white.opacity(0.3))
+                                        .lineLimit(1)
+                                }
+                            }
+                            .frame(width: 100, height: 110)
+                            .background(Color(hex: "2D3047").opacity(0.6))
+                            .clipShape(RoundedRectangle(cornerRadius: 14))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .stroke(.white.opacity(0.06), lineWidth: 1)
+                            )
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+    }
+
+    // MARK: - Recent Places
+
+    private var recentPlacesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                sectionHeader("Recent Places", icon: "clock.fill")
+                Spacer()
+                Button {
+                    locationManager.clearSearchHistory()
+                    withAnimation { recentSearches = [] }
+                } label: {
+                    Text("Clear")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Color(hex: "C9A0DC"))
+                }
+                .padding(.trailing, 20)
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(recentSearches) { entry in
+                        Button {
+                            filters.city = entry.name
+                            Task { await performSearch(reset: true) }
+                        } label: {
+                            Text(entry.name)
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 8)
+                                .background(Color(hex: "6C5CE7").opacity(0.2))
+                                .clipShape(Capsule())
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+        }
     }
 
     // MARK: - Autocomplete Dropdown
@@ -748,5 +962,78 @@ struct StudentSearchView: View {
         } catch {
             apiUniversities = []
         }
+    }
+
+    // MARK: - Hotspot Methods
+
+    private func loadNearbyHotspots() async {
+        guard let userLocation = locationManager.location else { return }
+        isLoadingHotspots = true
+
+        let queries = ["restaurants", "cafes", "nightlife", "parks"]
+        let searchRegion = MKCoordinateRegion(
+            center: userLocation.coordinate,
+            latitudinalMeters: 5_000,
+            longitudinalMeters: 5_000
+        )
+
+        var allItems: [MKMapItem] = []
+        for query in queries {
+            let request = MKLocalSearch.Request()
+            request.naturalLanguageQuery = query
+            request.region = searchRegion
+            request.resultTypes = .pointOfInterest
+            do {
+                let search = MKLocalSearch(request: request)
+                let response = try await search.start()
+                allItems.append(contentsOf: response.mapItems)
+            } catch {
+                // Individual query may fail — continue with others
+            }
+        }
+
+        // Deduplicate by name and take top 15
+        var seen = Set<String>()
+        var unique: [MKMapItem] = []
+        for item in allItems {
+            let key = item.name ?? UUID().uuidString
+            if seen.insert(key).inserted {
+                unique.append(item)
+            }
+        }
+
+        nearbyHotspots = unique.prefix(15).map { item in
+            let category = item.pointOfInterestCategory?.rawValue
+                .replacingOccurrences(of: "MKPOICategory", with: "")
+                ?? nil
+            let locality = [item.placemark.subLocality, item.placemark.locality]
+                .compactMap { $0 }
+                .joined(separator: ", ")
+            return Hotspot(
+                name: item.name ?? "Unknown",
+                category: category,
+                locality: locality.isEmpty ? nil : locality,
+                latitude: item.placemark.coordinate.latitude,
+                longitude: item.placemark.coordinate.longitude
+            )
+        }
+
+        isLoadingHotspots = false
+    }
+
+    private func selectHotspot(_ hotspot: Hotspot) {
+        // Filter by the hotspot's locality
+        let city = hotspot.locality ?? hotspot.name
+        filters.city = city
+        Task { await performSearch(reset: true) }
+
+        // Track search history
+        let entry = LocationSearchEntry(
+            name: city,
+            latitude: hotspot.latitude,
+            longitude: hotspot.longitude
+        )
+        locationManager.saveSearchEntry(entry)
+        recentSearches = locationManager.loadSearchHistory()
     }
 }

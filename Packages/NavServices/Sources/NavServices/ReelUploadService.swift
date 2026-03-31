@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import SwiftUI
 import AVFoundation
 import NavCore
@@ -47,17 +48,33 @@ public enum ReelUploadPhase: Equatable {
         }
     }
 
+    /// Unified 0.0–1.0 progress across the entire post pipeline (Instagram-style single bar).
+    /// Phases after the user taps "Post": mixAudio(15%) → compress(15%) → upload(70%)
     public var progress: Double {
-        // Pipeline order: mixAudio → compress → upload
         switch self {
-        case .mixingAudio(let p): return p * 0.10
-        case .compressing(let p): return 0.10 + p * 0.15
-        case .awaitingFilter: return 0.15
-        case .exportingFilter(let p): return 0.15 + p * 0.2
-        case .readyToPost: return 0.35
-        case .uploading(let p): return 0.35 + p * 0.6
-        case .done: return 1.0
-        default: return 0.0
+        case .mixingAudio(let p):      return p * 0.15
+        case .compressing(let p):      return 0.15 + p * 0.15
+        case .awaitingFilter:          return 0.15
+        case .exportingFilter(let p):  return 0.15 + p * 0.2
+        case .readyToPost:             return 0.35
+        case .uploading(let p):        return 0.30 + p * 0.70
+        case .done:                    return 1.0
+        default:                       return 0.0
+        }
+    }
+
+    /// User-facing label — single simple status like Instagram ("Posting...")
+    public var statusLabel: String {
+        switch self {
+        case .idle:                    return ""
+        case .compressing:             return "Posting..."
+        case .awaitingFilter:          return "Pick a filter"
+        case .exportingFilter:         return "Applying filter..."
+        case .readyToPost:             return "Ready to post"
+        case .mixingAudio:             return "Posting..."
+        case .uploading:               return "Posting..."
+        case .done:                    return "Shared"
+        case .failed:                  return "Failed — tap to retry"
         }
     }
 }
@@ -90,9 +107,60 @@ public class ReelUploadService: ObservableObject {
     private var lastPostScope: String?
     private var lastPostMusic: ReelMusic?
     private var lastPostMusicVolume: Float?
+    private var lastPostLocation: String?
+    private var lastPostLatitude: Double?
+    private var lastPostLongitude: Double?
     private var lastPostAuthToken: String?
 
+    // Background execution — keeps the app alive during mix/compress/upload
+    private var backgroundTaskID: UIBackgroundTaskIdentifier = .invalid
+
+    // Upload session — plain foreground session (no delegate).
+    // Progress is tracked by polling the URLSessionTask directly instead of
+    // using a delegate + CheckedContinuation, which caused continuation leaks
+    // when the retry loop overwrote the delegate's continuation reference.
+    private lazy var uploadSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 600
+        config.waitsForConnectivity = true
+        return URLSession(configuration: config)
+    }()
+
+    /// Max automatic retries for transient network errors before showing failure.
+    private static let maxAutoRetries = 3
+
+    // Temp file for the multipart body — kept across retries, cleaned on success/reset.
+    private var pendingUploadFile: URL?
+
+    // Progress polling task — cancelled before transitioning away from .uploading
+    private var activeProgressPoller: Task<Void, Never>?
+
     public init() {}
+
+    // MARK: - Background Task Helpers
+
+    private func beginBackgroundProcessing() {
+        guard backgroundTaskID == .invalid else { return }
+        backgroundTaskID = UIApplication.shared.beginBackgroundTask(withName: "ReelUpload") { [weak self] in
+            NavLog.warning("Reel upload: background time expiring", category: .general)
+            Task { @MainActor in
+                // Mark as failed so the pill doesn't stay stuck at "Posting..." forever
+                if let self, self.phase.isActive {
+                    self.phase = .failed(message: "Upload interrupted — tap to retry")
+                }
+            }
+            self?.endBackgroundProcessing()
+        }
+        NavLog.info("Reel upload: background task started (id=\(backgroundTaskID.rawValue))", category: .general)
+    }
+
+    private func endBackgroundProcessing() {
+        guard backgroundTaskID != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTaskID)
+        NavLog.info("Reel upload: background task ended", category: .general)
+        backgroundTaskID = .invalid
+    }
 
     // MARK: - Step 1: Prepare (called immediately on video pick)
 
@@ -227,12 +295,15 @@ public class ReelUploadService: ObservableObject {
     ///   - caption: The reel caption text.
     ///   - scope: "global" or "local" — determines feed visibility.
     ///   - authToken: Bearer token for the API.
-    public func post(caption: String, scope: String = "global", music: ReelMusic? = nil, musicVolume: Float = 0.5, authToken: String?) {
+    public func post(caption: String, scope: String = "global", music: ReelMusic? = nil, musicVolume: Float = 0.5, location: String? = nil, latitude: Double? = nil, longitude: Double? = nil, authToken: String?) {
         // Store params for retry
         lastPostCaption = caption
         lastPostScope = scope
         lastPostMusic = music
         lastPostMusicVolume = musicVolume
+        lastPostLocation = location
+        lastPostLatitude = latitude
+        lastPostLongitude = longitude
         lastPostAuthToken = authToken
 
         guard let videoURL = filteredURL else {
@@ -241,11 +312,20 @@ public class ReelUploadService: ObservableObject {
             return
         }
 
+        // Check disk space before creating multipart file (~2x video size needed)
+        if let fileSize = try? FileManager.default.attributesOfItem(atPath: videoURL.path)[.size] as? Int64,
+           let attrs = try? FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory()),
+           let freeSpace = attrs[.systemFreeSize] as? Int64,
+           freeSpace < fileSize * 2 {
+            phase = .failed(message: "Not enough storage space. Free up some space and try again.")
+            return
+        }
+
         Task {
             do {
                 var uploadVideoURL = videoURL
 
-                // Mix music audio into video first (uses Passthrough — fast, no re-encode)
+                // Mix music audio into video (re-encodes at source resolution to apply volume levels)
                 if let music, let previewURLString = music.previewURL,
                    let previewURL = URL(string: previewURLString) {
                     phase = .mixingAudio(progress: 0)
@@ -258,13 +338,23 @@ public class ReelUploadService: ObservableObject {
                     )
                 }
 
-                // Smart compression: if the video exceeds 50MB, progressively
-                // downscale (2160p → 1080p → 720p → 480p) until it fits.
-                phase = .compressing(progress: 0)
-                uploadVideoURL = try await compressForUpload(videoURL: uploadVideoURL)
+                // Smart compression: skip entirely when the file already fits
+                // under limit; otherwise progressively downscale until it does.
+                let preUploadSize = (try? FileManager.default.attributesOfItem(atPath: uploadVideoURL.path)[.size] as? Int64) ?? 0
+                if preUploadSize > Self.maxUploadBytes {
+                    phase = .compressing(progress: 0)
+                    uploadVideoURL = try await compressForUpload(videoURL: uploadVideoURL)
+                } else {
+                    NavLog.info("Post: \(preUploadSize / 1024)KB is under limit — skipping compression", category: .general)
+                }
+
+                // Request background time right before the network upload begins
+                // (not earlier — mix/compress happen in the foreground and don't need it)
+                self.beginBackgroundProcessing()
 
                 phase = .uploading(progress: 0)
 
+                // Build the multipart body file (kept for retries — only cleaned on success/reset)
                 let boundary = UUID().uuidString
                 let tempFile = FileManager.default.temporaryDirectory
                     .appendingPathComponent("reel_upload_\(UUID().uuidString).tmp")
@@ -275,96 +365,166 @@ public class ReelUploadService: ObservableObject {
                     videoURL: uploadVideoURL,
                     caption: caption,
                     scope: scope,
-                    music: music
+                    music: music,
+                    location: location,
+                    latitude: latitude,
+                    longitude: longitude
                 )
+                pendingUploadFile = tempFile
 
                 let fileSize = (try? FileManager.default.attributesOfItem(atPath: tempFile.path)[.size] as? Int64) ?? 0
-                NavLog.info("Reel upload: multipart file built (\(fileSize) bytes)", category: .network)
+                NavLog.info("Reel upload: multipart file built (\(fileSize / 1024)KB)", category: .network)
 
                 let baseURL = AppConfig.shared.apiBaseURL
                 guard let url = URL(string: "\(baseURL)/reels") else {
                     phase = .failed(message: "Invalid upload URL")
+                    endBackgroundProcessing()
                     return
                 }
 
-                NavLog.info("Reel upload: POST \(url.absoluteString)", category: .network)
-
                 var request = URLRequest(url: url)
                 request.httpMethod = "POST"
-                request.timeoutInterval = 300
                 request.setValue(
                     "multipart/form-data; boundary=\(boundary)",
                     forHTTPHeaderField: "Content-Type"
                 )
                 if let token = authToken {
                     request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-                    NavLog.info("Reel upload: auth token attached", category: .network)
                 } else {
                     NavLog.error("Reel upload: NO auth token available", category: .network)
                 }
 
-                let (data, response) = try await uploadWithProgress(
-                    request: request,
-                    fileURL: tempFile,
-                    totalSize: fileSize
-                )
+                // Instagram-style: retry up to 3 times on transient network errors
+                // with exponential backoff (2s, 4s, 8s) before showing failure.
+                var lastError: Error?
+                for attempt in 0..<Self.maxAutoRetries {
+                    do {
+                        if attempt > 0 {
+                            let delay = pow(2.0, Double(attempt))
+                            NavLog.info("Reel upload: retry #\(attempt) in \(Int(delay))s…", category: .network)
+                            phase = .uploading(progress: 0)
+                            try await Task.sleep(for: .seconds(delay))
+                        }
 
-                try? FileManager.default.removeItem(at: tempFile)
+                        let (data, response) = try await uploadWithProgress(
+                            request: request,
+                            fileURL: tempFile,
+                            totalSize: fileSize
+                        )
 
-                guard let httpResponse = response as? HTTPURLResponse else {
-                    phase = .failed(message: "Invalid server response")
-                    return
+                        guard let httpResponse = response as? HTTPURLResponse else {
+                            phase = .failed(message: "Invalid server response")
+                            endBackgroundProcessing()
+                            return
+                        }
+
+                        let body = String(data: data, encoding: .utf8) ?? ""
+                        NavLog.info("Reel upload: response \(httpResponse.statusCode)", category: .network)
+
+                        // Server errors (5xx) are retryable; client errors (4xx) are not
+                        if httpResponse.statusCode >= 500 {
+                            lastError = URLError(.badServerResponse)
+                            NavLog.warning("Reel upload: server error \(httpResponse.statusCode), will retry", category: .network)
+                            continue
+                        }
+
+                        if httpResponse.statusCode >= 400 {
+                            NavLog.error("Reel upload failed (\(httpResponse.statusCode)): \(body)", category: .network)
+                            phase = .failed(message: "Upload failed (status \(httpResponse.statusCode))")
+                            endBackgroundProcessing()
+                            return
+                        }
+
+                        // Success — stop progress polling and clean up temp file
+                        activeProgressPoller?.cancel()
+                        activeProgressPoller = nil
+                        cleanUpPendingUpload()
+
+                        struct UploadResponse: Codable {
+                            let reel_id: Int?
+                            let message: String?
+                        }
+
+                        if let result = try? JSONDecoder().decode(UploadResponse.self, from: data) {
+                            let reelId = result.reel_id ?? 0
+                            NavLog.info("Reel upload success: reel_id=\(reelId)", category: .network)
+                            phase = .done(reelId: reelId)
+                        } else {
+                            NavLog.info("Reel upload: 2xx but unexpected body: \(body)", category: .network)
+                            phase = .done(reelId: 0)
+                        }
+
+                        NotificationCenter.default.post(name: Self.didFinishUploadNotification, object: nil)
+
+                        // Auto-dismiss after 3 seconds
+                        try? await Task.sleep(for: .seconds(3))
+                        if case .done = phase { reset() }
+                        endBackgroundProcessing()
+                        return
+
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        lastError = error
+                        let isRetryable = Self.isRetryableError(error)
+                        NavLog.warning("Reel upload: attempt \(attempt + 1) failed — \(error.localizedDescription) (retryable=\(isRetryable))", category: .network)
+                        if !isRetryable { break }
+                    }
                 }
 
-                let body = String(data: data, encoding: .utf8) ?? ""
-                NavLog.info("Reel upload: response \(httpResponse.statusCode) - \(body)", category: .network)
-
-                if httpResponse.statusCode >= 400 {
-                    NavLog.error("Reel upload failed (\(httpResponse.statusCode)): \(body)", category: .network)
-                    phase = .failed(message: "Upload failed (status \(httpResponse.statusCode))")
-                    return
-                }
-
-                struct UploadResponse: Codable {
-                    let reel_id: Int?
-                    let message: String?
-                }
-
-                if let result = try? JSONDecoder().decode(UploadResponse.self, from: data) {
-                    let reelId = result.reel_id ?? 0
-                    NavLog.info("Reel upload success: reel_id=\(reelId)", category: .network)
-                    phase = .done(reelId: reelId)
-                } else {
-                    // Server returned 2xx but unexpected body format — still treat as success
-                    NavLog.info("Reel upload: 2xx response but unexpected body: \(body)", category: .network)
-                    phase = .done(reelId: 0)
-                }
-
-                NotificationCenter.default.post(name: Self.didFinishUploadNotification, object: nil)
-
-                // Auto-dismiss after 3 seconds
-                try? await Task.sleep(for: .seconds(3))
-                if case .done = phase {
-                    reset()
-                }
+                // All retries exhausted — stop progress polling
+                activeProgressPoller?.cancel()
+                activeProgressPoller = nil
+                let msg = Self.userMessage(for: lastError)
+                phase = .failed(message: msg)
+                endBackgroundProcessing()
 
             } catch is CancellationError {
                 NavLog.info("Reel upload cancelled", category: .network)
                 reset()
-            } catch let urlError as URLError {
-                NavLog.error("Reel upload URLError [\(urlError.code.rawValue)]: \(urlError.localizedDescription)", category: .network)
-                switch urlError.code {
-                case .timedOut:
-                    phase = .failed(message: "Upload timed out. Try a shorter video or better connection.")
-                case .cannotConnectToHost, .notConnectedToInternet, .networkConnectionLost:
-                    phase = .failed(message: "Could not connect to server. Check your connection and try again.")
-                default:
-                    phase = .failed(message: "Network error: \(urlError.localizedDescription)")
-                }
+                endBackgroundProcessing()
             } catch {
                 NavLog.error("Reel upload error: \(error)", category: .network)
                 phase = .failed(message: error.localizedDescription)
+                endBackgroundProcessing()
             }
+        }
+    }
+
+    // MARK: - Error Helpers
+
+    /// Returns true for transient network errors that are worth retrying.
+    private static func isRetryableError(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+        switch urlError.code {
+        case .timedOut, .cannotConnectToHost, .notConnectedToInternet,
+             .networkConnectionLost, .dnsLookupFailed, .secureConnectionFailed:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// Maps an error to a user-friendly message.
+    private static func userMessage(for error: Error?) -> String {
+        guard let urlError = error as? URLError else {
+            return error?.localizedDescription ?? "Upload failed — tap to retry"
+        }
+        switch urlError.code {
+        case .timedOut:
+            return "Upload timed out. Try a shorter video or better connection."
+        case .cannotConnectToHost, .notConnectedToInternet, .networkConnectionLost:
+            return "No connection — tap to retry"
+        default:
+            return "Network error — tap to retry"
+        }
+    }
+
+    /// Removes the pending multipart temp file.
+    private func cleanUpPendingUpload() {
+        if let file = pendingUploadFile {
+            try? FileManager.default.removeItem(at: file)
+            pendingUploadFile = nil
         }
     }
 
@@ -388,6 +548,9 @@ public class ReelUploadService: ObservableObject {
             scope: scope,
             music: lastPostMusic,
             musicVolume: lastPostMusicVolume ?? 0.5,
+            location: lastPostLocation,
+            latitude: lastPostLatitude,
+            longitude: lastPostLongitude,
             authToken: lastPostAuthToken
         )
     }
@@ -414,12 +577,18 @@ public class ReelUploadService: ObservableObject {
         lastPostScope = nil
         lastPostMusic = nil
         lastPostMusicVolume = nil
+        lastPostLocation = nil
+        lastPostLatitude = nil
+        lastPostLongitude = nil
         lastPostAuthToken = nil
+        activeProgressPoller?.cancel()
+        activeProgressPoller = nil
+        cleanUpPendingUpload()
     }
 
-    // MARK: - Smart Compression (progressive downscale if over 50MB)
+    // MARK: - Smart Compression (progressive downscale if over limit)
 
-    private static let maxUploadBytes: Int64 = 50 * 1024 * 1024 // 50 MB
+    private static let maxUploadBytes: Int64 = 100 * 1024 * 1024 // 100 MB — preserves video quality; NGINX allows 200MB
 
     /// Resolution presets to try in descending order.
     /// Each entry is (label for logging, AVAssetExportSession preset name).
@@ -431,25 +600,52 @@ public class ReelUploadService: ObservableObject {
         ("480p",  AVAssetExportPreset640x480),
     ]
 
-    /// Checks the file size of `videoURL`. If it's under 50MB, returns it unchanged.
+    /// Checks the file size of `videoURL`. If it's under limit, returns it unchanged.
     /// Otherwise re-exports at progressively lower resolutions until it fits.
     private func compressForUpload(videoURL: URL) async throws -> URL {
         let attrs = try FileManager.default.attributesOfItem(atPath: videoURL.path)
         let fileSize = (attrs[.size] as? Int64) ?? 0
 
         if fileSize <= Self.maxUploadBytes {
-            NavLog.info("Compress: \(fileSize / 1024)KB is under 50MB — no re-encode needed", category: .general)
+            NavLog.info("Compress: \(fileSize / 1024)KB is under limit — no re-encode needed", category: .general)
             return videoURL
         }
 
-        NavLog.info("Compress: \(fileSize / 1024)KB exceeds 50MB — starting progressive downscale", category: .general)
+        NavLog.info("Compress: \(fileSize / 1024)KB exceeds limit — starting progressive downscale", category: .general)
 
         let asset = AVURLAsset(url: videoURL)
         let compatiblePresets = AVAssetExportSession.exportPresets(compatibleWith: asset)
 
-        // Deduplicate presets while preserving order (e.g. 1440p and 1080p map to same preset)
+        // Detect the source video's actual resolution so we skip presets above it
+        // (e.g. after a 1080p audio mix, skip 2160p to avoid a pointless re-encode).
+        let sourceHeight: Int = await {
+            guard let track = try? await asset.loadTracks(withMediaType: .video).first else { return 0 }
+            let size = try? await track.load(.naturalSize)
+            let transform = try? await track.load(.preferredTransform)
+            guard let size, let transform else { return 0 }
+            let transformed = size.applying(transform)
+            return Int(max(abs(transformed.width), abs(transformed.height)))
+        }()
+        NavLog.info("Compress: source height = \(sourceHeight)px", category: .general)
+
+        // Map preset names to their target height for filtering
+        let presetHeights: [String: Int] = [
+            AVAssetExportPreset3840x2160: 2160,
+            AVAssetExportPreset1920x1080: 1080,
+            AVAssetExportPreset1280x720:  720,
+            AVAssetExportPreset960x540:   540,
+            AVAssetExportPreset640x480:   480,
+        ]
+
+        // Deduplicate presets while preserving order, skip presets above source resolution
         var seen = Set<String>()
-        let uniquePresets = Self.resolutionLadder.filter { seen.insert($0.1).inserted && compatiblePresets.contains($0.1) }
+        let uniquePresets = Self.resolutionLadder.filter { entry in
+            let (_, preset) = entry
+            guard seen.insert(preset).inserted && compatiblePresets.contains(preset) else { return false }
+            // Skip presets whose target height exceeds the source (would upscale or waste time)
+            if sourceHeight > 0, let targetH = presetHeights[preset], targetH > sourceHeight { return false }
+            return true
+        }
 
         for (label, preset) in uniquePresets {
             try Task.checkCancellation()
@@ -492,7 +688,7 @@ public class ReelUploadService: ObservableObject {
             NavLog.info("Compress: \(label) produced \(outSize / 1024)KB", category: .general)
 
             if outSize <= Self.maxUploadBytes {
-                NavLog.info("Compress: \(label) fits under 50MB ✓", category: .general)
+                NavLog.info("Compress: \(label) fits under limit ✓", category: .general)
                 return outputURL
             }
 
@@ -501,7 +697,7 @@ public class ReelUploadService: ObservableObject {
         }
 
         // If nothing fits (very unlikely), return the lowest-quality export or the original
-        NavLog.warning("Compress: all presets still over 50MB — uploading lowest quality available", category: .general)
+        NavLog.warning("Compress: all presets still over limit — uploading lowest quality available", category: .general)
 
         // Last resort: try LowQuality one more time and accept whatever size it produces
         let fallbackURL = FileManager.default.temporaryDirectory
@@ -535,13 +731,22 @@ public class ReelUploadService: ObservableObject {
         NavLog.info("Audio mix: downloading music preview…", category: .general)
 
         // 1. Download the music preview to a local temp file
-        let (audioTempURL, _) = try await URLSession.shared.download(from: musicURL)
         let audioLocalURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("music_preview_\(UUID().uuidString).m4a")
         try? FileManager.default.removeItem(at: audioLocalURL)
-        try FileManager.default.moveItem(at: audioTempURL, to: audioLocalURL)
 
-        NavLog.info("Audio mix: preview downloaded, building composition…", category: .general)
+        // Download the music preview file in one shot.
+        // The previous byte-by-byte async stream caused extreme CPU usage/heat
+        // by iterating millions of times and dispatching to MainActor on each byte.
+        let (tempDownloadURL, _) = try await URLSession.shared.download(from: musicURL)
+
+        // Move the downloaded temp file to our known location
+        try? FileManager.default.removeItem(at: audioLocalURL)
+        try FileManager.default.moveItem(at: tempDownloadURL, to: audioLocalURL)
+        await MainActor.run { [weak self] in self?.phase = .mixingAudio(progress: 0.2) }
+
+        let downloadSize = ((try? FileManager.default.attributesOfItem(atPath: audioLocalURL.path)[.size] as? Int64) ?? 0)
+        NavLog.info("Audio mix: preview downloaded (\(downloadSize / 1024)KB), building composition…", category: .general)
 
         // 2. Load assets
         let videoAsset = AVURLAsset(url: videoURL)
@@ -669,13 +874,35 @@ public class ReelUploadService: ObservableObject {
         let outputURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("mixed_\(UUID().uuidString).mp4")
 
-        // AVAssetExportPresetPassthrough cannot apply AVMutableAudioMix (volume adjustments
-        // are silently ignored), so we must use a re-encoding preset to honor volume levels.
-        // Prefer HighestQuality to preserve video fidelity; fall back to MediumQuality.
+        // AVAssetExportPresetPassthrough ignores AVMutableAudioMix volume parameters,
+        // so we must use a re-encoding preset. Preserve full video quality by matching
+        // the source resolution — compress audio bitrate instead of downscaling video.
+        // Video is the main experience; audio is a tiny fraction of the file size.
+        let sourceShortSide: Int = await {
+            let size = try? await videoTrack.load(.naturalSize)
+            let transform = try? await videoTrack.load(.preferredTransform)
+            guard let size, let transform else { return 1080 }
+            let transformed = size.applying(transform)
+            return Int(min(abs(transformed.width), abs(transformed.height)))
+        }()
+
         let preset: String = {
             let compatible = AVAssetExportSession.exportPresets(compatibleWith: composition)
-            if compatible.contains(AVAssetExportPresetHighestQuality) {
-                return AVAssetExportPresetHighestQuality
+            // Match source resolution to preserve video quality
+            let ladder: [(Int, String)] = [
+                (2160, AVAssetExportPreset3840x2160),
+                (1080, AVAssetExportPreset1920x1080),
+                (720,  AVAssetExportPreset1280x720),
+                (540,  AVAssetExportPreset960x540),
+                (480,  AVAssetExportPreset640x480),
+            ]
+            for (height, presetName) in ladder {
+                if height <= sourceShortSide && compatible.contains(presetName) {
+                    return presetName
+                }
+            }
+            if compatible.contains(AVAssetExportPreset1280x720) {
+                return AVAssetExportPreset1280x720
             }
             return AVAssetExportPresetMediumQuality
         }()
@@ -694,12 +921,13 @@ public class ReelUploadService: ObservableObject {
         exportSession.outputURL = outputURL
         exportSession.outputFileType = .mp4
         exportSession.shouldOptimizeForNetworkUse = true
+        exportSession.fileLengthLimit = Self.maxUploadBytes  // Cap at 100MB to avoid second compress pass
         exportSession.audioMix = audioMix
 
-        // Track progress
+        // Track progress — map export to 0.2–1.0 range (download was 0–0.2)
         let progressTask = Task.detached { [weak self] in
             while !Task.isCancelled {
-                let p = Double(exportSession.progress)
+                let p = 0.2 + Double(exportSession.progress) * 0.8
                 await MainActor.run { self?.phase = .mixingAudio(progress: p) }
                 try? await Task.sleep(for: .milliseconds(200))
             }
@@ -751,7 +979,10 @@ public class ReelUploadService: ObservableObject {
         videoURL: URL,
         caption: String,
         scope: String,
-        music: ReelMusic? = nil
+        music: ReelMusic? = nil,
+        location: String? = nil,
+        latitude: Double? = nil,
+        longitude: Double? = nil
     ) throws {
         FileManager.default.createFile(atPath: fileURL.path, contents: nil)
         let handle = try FileHandle(forWritingTo: fileURL)
@@ -766,6 +997,26 @@ public class ReelUploadService: ObservableObject {
         handle.write("--\(boundary)\r\n".data(using: .utf8)!)
         handle.write("Content-Disposition: form-data; name=\"scope\"\r\n\r\n".data(using: .utf8)!)
         handle.write("\(scope)\r\n".data(using: .utf8)!)
+
+        // Location fields (optional)
+        if let location, !location.isEmpty {
+            handle.write("--\(boundary)\r\n".data(using: .utf8)!)
+            handle.write("Content-Disposition: form-data; name=\"location\"\r\n\r\n".data(using: .utf8)!)
+            handle.write("\(location)\r\n".data(using: .utf8)!)
+        }
+        // Filter out null island (0,0) and obviously invalid coordinates
+        let validCoords = latitude != nil && longitude != nil
+            && (abs(latitude!) > 0.1 || abs(longitude!) > 0.1)
+        if validCoords, let latitude {
+            handle.write("--\(boundary)\r\n".data(using: .utf8)!)
+            handle.write("Content-Disposition: form-data; name=\"latitude\"\r\n\r\n".data(using: .utf8)!)
+            handle.write("\(latitude)\r\n".data(using: .utf8)!)
+        }
+        if validCoords, let longitude {
+            handle.write("--\(boundary)\r\n".data(using: .utf8)!)
+            handle.write("Content-Disposition: form-data; name=\"longitude\"\r\n\r\n".data(using: .utf8)!)
+            handle.write("\(longitude)\r\n".data(using: .utf8)!)
+        }
 
         // Music fields (optional)
         if let music {
@@ -821,61 +1072,60 @@ public class ReelUploadService: ObservableObject {
 
     // MARK: - Upload with Progress
 
+    /// Uploads the file and tracks progress by polling the URLSessionTask.
+    /// Uses a completion-handler-based task so the continuation is guaranteed to
+    /// resume exactly once — eliminates the delegate continuation leak.
     private func uploadWithProgress(
         request: URLRequest,
         fileURL: URL,
         totalSize: Int64
     ) async throws -> (Data, URLResponse) {
-        try await withCheckedThrowingContinuation { continuation in
-            let delegate = UploadProgressDelegate { [weak self] fraction in
-                Task { @MainActor in
-                    self?.phase = .uploading(progress: fraction)
-                }
-            }
+        NavLog.info("Reel upload: upload task starting (\(totalSize / 1024)KB)", category: .network)
 
-            let config = URLSessionConfiguration.default
-            config.timeoutIntervalForRequest = 300
-            config.timeoutIntervalForResource = 600
-
-            let session = URLSession(
-                configuration: config,
-                delegate: delegate,
-                delegateQueue: nil
-            )
-
-            let task = session.uploadTask(with: request, fromFile: fileURL) { data, response, error in
+        return try await withCheckedThrowingContinuation { continuation in
+            let task = uploadSession.uploadTask(with: request, fromFile: fileURL) { data, response, error in
                 if let error {
                     continuation.resume(throwing: error)
                 } else if let data, let response {
                     continuation.resume(returning: (data, response))
                 } else {
-                    continuation.resume(throwing: APIError.invalidResponse)
+                    continuation.resume(throwing: URLError(.badServerResponse))
                 }
+            }
+
+            // Poll progress by reading the task's counters every 250ms.
+            // Stops when the upload task completes OR this structured task is cancelled.
+            let progressPoller = Task.detached { [weak self] in
+                while !Task.isCancelled {
+                    let sent = task.countOfBytesSent
+                    let total = task.countOfBytesExpectedToSend
+                    if total > 0 {
+                        let fraction = Double(sent) / Double(total)
+                        await MainActor.run {
+                            // Only update if still in uploading phase — don't overwrite .done/.failed
+                            if case .uploading = self?.phase {
+                                self?.phase = .uploading(progress: fraction)
+                            }
+                        }
+                    }
+                    // Stop polling once the task has finished
+                    if task.state == .completed || task.state == .canceling { break }
+                    try? await Task.sleep(for: .milliseconds(250))
+                }
+            }
+
+            // Store the poller so post() can cancel it before setting .done
+            Task { @MainActor [weak self] in
+                self?.activeProgressPoller = progressPoller
             }
 
             task.resume()
         }
     }
-}
 
-// MARK: - Upload Progress Delegate
-
-private class UploadProgressDelegate: NSObject, URLSessionTaskDelegate {
-    let onProgress: (Double) -> Void
-
-    init(onProgress: @escaping (Double) -> Void) {
-        self.onProgress = onProgress
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        didSendBodyData bytesSent: Int64,
-        totalBytesSent: Int64,
-        totalBytesExpectedToSend: Int64
-    ) {
-        guard totalBytesExpectedToSend > 0 else { return }
-        let fraction = Double(totalBytesSent) / Double(totalBytesExpectedToSend)
-        onProgress(fraction)
+    /// Kept for AppDelegate compatibility — no-op now that we use foreground sessions.
+    public func handleBackgroundSessionEvents(completionHandler: @escaping () -> Void) {
+        // Background URL sessions removed — call the completion handler immediately
+        completionHandler()
     }
 }

@@ -8,6 +8,8 @@ public enum APIError: LocalizedError {
     case invalidURL(String)
     case serverError(String)
     case unauthorized
+    case forbidden
+    case serviceUnavailable(Int)
 
     public var errorDescription: String? {
         switch self {
@@ -16,6 +18,16 @@ public enum APIError: LocalizedError {
         case .invalidURL(let url): return "Invalid URL: \(url)"
         case .serverError(let msg): return msg
         case .unauthorized: return "Session expired. Please sign in again."
+        case .forbidden: return "You don't have permission to do that."
+        case .serviceUnavailable(let code): return "Something went wrong (error \(code)). Please try again."
+        }
+    }
+
+    /// Whether this error is transient and retrying may succeed.
+    public var isRetryable: Bool {
+        switch self {
+        case .serviceUnavailable, .networkError: return true
+        default: return false
         }
     }
 }
@@ -83,6 +95,10 @@ public class APIService {
     /// Set by the app layer (e.g. NetworkMetrics) at startup.
     public var onMetric: (@Sendable (APIRequestMetric) -> Void)?
 
+    /// Called when a 401 is received. Returns `true` if token was refreshed
+    /// and the request should be retried with the new token.
+    public var onUnauthorized: (() async -> Bool)?
+
     private let baseURL: String
     private var authToken: String?
     private let session: URLSession
@@ -143,6 +159,26 @@ public class APIService {
         NavLog.debug("GraphQL response: \(httpResponse.statusCode)", category: .network)
 
         if httpResponse.statusCode == 401 {
+            // Attempt token refresh and retry once
+            if let onUnauthorized, await onUnauthorized() {
+                NavLog.info("Token refreshed after 401, retrying GraphQL", category: .network)
+                var retryRequest = request
+                if let token = authToken {
+                    retryRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                }
+                let (retryData, retryResponse) = try await performWithRetry(request: retryRequest)
+                guard let retryHttp = retryResponse as? HTTPURLResponse else { throw APIError.invalidResponse }
+                if retryHttp.statusCode == 401 { throw APIError.unauthorized }
+                guard let retryJson = try JSONSerialization.jsonObject(with: retryData) as? [String: Any] else {
+                    throw APIError.invalidResponse
+                }
+                if let errors = retryJson["errors"] as? [[String: Any]] {
+                    let messages = errors.compactMap { $0["message"] as? String }
+                    throw APIError.serverError(messages.joined(separator: "; "))
+                }
+                guard let data = retryJson["data"] as? T else { throw APIError.invalidResponse }
+                return data
+            }
             NavLog.warning("Unauthorized (401) from GraphQL", category: .network)
             throw APIError.unauthorized
         }
@@ -198,6 +234,23 @@ public class APIService {
         NavLog.debug("GraphQL (typed) response: \(httpResponse.statusCode)", category: .network)
 
         if httpResponse.statusCode == 401 {
+            // Attempt token refresh and retry once
+            if let onUnauthorized, await onUnauthorized() {
+                NavLog.info("Token refreshed after 401, retrying typed GraphQL", category: .network)
+                var retryRequest = request
+                if let token = authToken {
+                    retryRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                }
+                let (retryData, retryResponse) = try await performWithRetry(request: retryRequest)
+                guard let retryHttp = retryResponse as? HTTPURLResponse else { throw APIError.invalidResponse }
+                if retryHttp.statusCode == 401 { throw APIError.unauthorized }
+                let envelope = try JSONDecoder().decode(GraphQLResponse<T>.self, from: retryData)
+                if let errors = envelope.errors, !errors.isEmpty {
+                    throw APIError.serverError(errors.map(\.message).joined(separator: "; "))
+                }
+                guard let data = envelope.data else { throw APIError.invalidResponse }
+                return data
+            }
             NavLog.warning("Unauthorized (401) from GraphQL", category: .network)
             throw APIError.unauthorized
         }
@@ -232,7 +285,26 @@ public class APIService {
         request.httpBody = data
 
         NavLog.debug("POST \(path)", category: .network)
-        let (responseData, _) = try await performWithRetry(request: request)
+        let (responseData, response) = try await performWithRetry(request: request)
+
+        if let httpResponse = response as? HTTPURLResponse {
+            if httpResponse.statusCode == 401 {
+                if let onUnauthorized, await onUnauthorized() {
+                    var retryRequest = request
+                    if let token = authToken {
+                        retryRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                    }
+                    let (retryData, retryResp) = try await performWithRetry(request: retryRequest)
+                    if let retryHttp = retryResp as? HTTPURLResponse, retryHttp.statusCode == 401 {
+                        throw APIError.unauthorized
+                    }
+                    return try JSONDecoder().decode(T.self, from: retryData)
+                }
+                throw APIError.unauthorized
+            }
+            try checkHTTPStatus(httpResponse, path: path)
+        }
+
         return try JSONDecoder().decode(T.self, from: responseData)
     }
 
@@ -247,7 +319,26 @@ public class APIService {
         }
 
         NavLog.debug("GET \(path)", category: .network)
-        let (responseData, _) = try await performWithRetry(request: request)
+        let (responseData, response) = try await performWithRetry(request: request)
+
+        if let httpResponse = response as? HTTPURLResponse {
+            if httpResponse.statusCode == 401 {
+                if let onUnauthorized, await onUnauthorized() {
+                    var retryRequest = request
+                    if let token = authToken {
+                        retryRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                    }
+                    let (retryData, retryResp) = try await performWithRetry(request: retryRequest)
+                    if let retryHttp = retryResp as? HTTPURLResponse, retryHttp.statusCode == 401 {
+                        throw APIError.unauthorized
+                    }
+                    return try JSONDecoder().decode(T.self, from: retryData)
+                }
+                throw APIError.unauthorized
+            }
+            try checkHTTPStatus(httpResponse, path: path)
+        }
+
         return try JSONDecoder().decode(T.self, from: responseData)
     }
 
@@ -285,8 +376,33 @@ public class APIService {
         request.httpBody = body
 
         NavLog.debug("Multipart upload to \(path) (\(fileData.count) bytes)", category: .network)
-        let (responseData, _) = try await performWithRetry(request: request)
+        let (responseData, response) = try await performWithRetry(request: request)
+        if let httpResponse = response as? HTTPURLResponse {
+            try checkHTTPStatus(httpResponse, path: path)
+        }
         return try JSONDecoder().decode(T.self, from: responseData)
+    }
+
+    // MARK: - HTTP Status Checks
+
+    /// Checks for common HTTP error status codes and throws the appropriate APIError.
+    /// 401 is handled separately per-method (token refresh logic).
+    private func checkHTTPStatus(_ response: HTTPURLResponse, path: String) throws {
+        switch response.statusCode {
+        case 200..<400:
+            break // Success range
+        case 403:
+            NavLog.warning("Forbidden (403) from \(path)", category: .network)
+            throw APIError.forbidden
+        case 400..<500:
+            NavLog.warning("Client error (\(response.statusCode)) from \(path)", category: .network)
+            throw APIError.serverError("Request failed (\(response.statusCode))")
+        case 500...:
+            NavLog.error("Server error (\(response.statusCode)) from \(path)", category: .network)
+            throw APIError.serviceUnavailable(response.statusCode)
+        default:
+            break
+        }
     }
 
     // MARK: - Retry Logic

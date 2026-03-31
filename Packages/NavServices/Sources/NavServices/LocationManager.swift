@@ -50,6 +50,56 @@ public class LocationManager: NSObject, ObservableObject {
         }
     }
 
+    // MARK: - Search History
+
+    private static let searchHistoryKey = "nava_location_search_history"
+    private static let maxHistoryEntries = 20
+
+    public func saveSearchEntry(_ entry: LocationSearchEntry) {
+        var history = loadSearchHistory()
+        // Remove duplicates by name
+        history.removeAll { $0.name == entry.name }
+        history.insert(entry, at: 0)
+        // Keep max entries
+        if history.count > Self.maxHistoryEntries {
+            history = Array(history.prefix(Self.maxHistoryEntries))
+        }
+        if let data = try? JSONEncoder().encode(history) {
+            UserDefaults.standard.set(data, forKey: Self.searchHistoryKey)
+        }
+        sendSearchEntryToBackend(entry)
+    }
+
+    public func loadSearchHistory() -> [LocationSearchEntry] {
+        guard let data = UserDefaults.standard.data(forKey: Self.searchHistoryKey),
+              let history = try? JSONDecoder().decode([LocationSearchEntry].self, from: data) else {
+            return []
+        }
+        return history
+    }
+
+    public func clearSearchHistory() {
+        UserDefaults.standard.removeObject(forKey: Self.searchHistoryKey)
+    }
+
+    private func sendSearchEntryToBackend(_ entry: LocationSearchEntry) {
+        Task {
+            struct Response: Codable { let success: Bool? }
+            do {
+                let _: Response = try await APIService.shared.post(
+                    path: "/location/search-history",
+                    body: [
+                        "name": entry.name,
+                        "latitude": entry.latitude,
+                        "longitude": entry.longitude,
+                    ]
+                )
+            } catch {
+                NavLog.warning("Location search history send failed: \(error.localizedDescription)", category: .network)
+            }
+        }
+    }
+
     private func sendToBackend(_ location: CLLocation, placemark: CLPlacemark?) {
         Task {
             struct LocationResponse: Codable { let success: Bool? }

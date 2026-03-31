@@ -291,7 +291,7 @@ public struct ChatMessage: Identifiable, Equatable {
 
 }
 
-public struct LikedProfile: Identifiable {
+public struct LikedProfile: Identifiable, Codable {
     public let id: String
     public var name: String
     public var age: Int
@@ -300,7 +300,7 @@ public struct LikedProfile: Identifiable {
     public var likedAt: String
     public var message: String?
 
-    public enum LikeType: String {
+    public enum LikeType: String, Codable {
         case swipe, reel, superLike = "super_like"
     }
 
@@ -387,17 +387,135 @@ public enum PremiumTier: String, CaseIterable, Identifiable {
 }
 
 public extension Country {
+    // MARK: - Full country list (sorted alphabetically)
     static let all: [Country] = [
-        Country(id: "IN", code: "IN", name: "India", dialCode: "+91", flag: "\u{1F1EE}\u{1F1F3}", minLength: 10, maxLength: 10),
-        Country(id: "US", code: "US", name: "United States", dialCode: "+1", flag: "\u{1F1FA}\u{1F1F8}", minLength: 10, maxLength: 10),
-        Country(id: "GB", code: "GB", name: "United Kingdom", dialCode: "+44", flag: "\u{1F1EC}\u{1F1E7}", minLength: 10, maxLength: 11),
-        Country(id: "CA", code: "CA", name: "Canada", dialCode: "+1", flag: "\u{1F1E8}\u{1F1E6}", minLength: 10, maxLength: 10),
+        Country(id: "AF", code: "AF", name: "Afghanistan", dialCode: "+93", flag: "\u{1F1E6}\u{1F1EB}", minLength: 9, maxLength: 9),
+        Country(id: "AL", code: "AL", name: "Albania", dialCode: "+355", flag: "\u{1F1E6}\u{1F1F1}", minLength: 9, maxLength: 9),
+        Country(id: "DZ", code: "DZ", name: "Algeria", dialCode: "+213", flag: "\u{1F1E9}\u{1F1FF}", minLength: 9, maxLength: 9),
+        Country(id: "AR", code: "AR", name: "Argentina", dialCode: "+54", flag: "\u{1F1E6}\u{1F1F7}", minLength: 10, maxLength: 11),
+        Country(id: "AM", code: "AM", name: "Armenia", dialCode: "+374", flag: "\u{1F1E6}\u{1F1F2}", minLength: 8, maxLength: 8),
         Country(id: "AU", code: "AU", name: "Australia", dialCode: "+61", flag: "\u{1F1E6}\u{1F1FA}", minLength: 9, maxLength: 9),
-        Country(id: "DE", code: "DE", name: "Germany", dialCode: "+49", flag: "\u{1F1E9}\u{1F1EA}", minLength: 10, maxLength: 11),
+        Country(id: "AT", code: "AT", name: "Austria", dialCode: "+43", flag: "\u{1F1E6}\u{1F1F9}", minLength: 10, maxLength: 11),
+        Country(id: "AZ", code: "AZ", name: "Azerbaijan", dialCode: "+994", flag: "\u{1F1E6}\u{1F1FF}", minLength: 9, maxLength: 9),
+        Country(id: "BH", code: "BH", name: "Bahrain", dialCode: "+973", flag: "\u{1F1E7}\u{1F1ED}", minLength: 8, maxLength: 8),
+        Country(id: "BD", code: "BD", name: "Bangladesh", dialCode: "+880", flag: "\u{1F1E7}\u{1F1E9}", minLength: 10, maxLength: 10),
+        Country(id: "BY", code: "BY", name: "Belarus", dialCode: "+375", flag: "\u{1F1E7}\u{1F1FE}", minLength: 9, maxLength: 10),
+        Country(id: "BE", code: "BE", name: "Belgium", dialCode: "+32", flag: "\u{1F1E7}\u{1F1EA}", minLength: 9, maxLength: 10),
+        Country(id: "BO", code: "BO", name: "Bolivia", dialCode: "+591", flag: "\u{1F1E7}\u{1F1F4}", minLength: 8, maxLength: 8),
+        Country(id: "BR", code: "BR", name: "Brazil", dialCode: "+55", flag: "\u{1F1E7}\u{1F1F7}", minLength: 10, maxLength: 11),
+        Country(id: "BN", code: "BN", name: "Brunei", dialCode: "+673", flag: "\u{1F1E7}\u{1F1F3}", minLength: 7, maxLength: 7),
+        Country(id: "BG", code: "BG", name: "Bulgaria", dialCode: "+359", flag: "\u{1F1E7}\u{1F1EC}", minLength: 9, maxLength: 9),
+        Country(id: "KH", code: "KH", name: "Cambodia", dialCode: "+855", flag: "\u{1F1F0}\u{1F1ED}", minLength: 8, maxLength: 9),
+        Country(id: "CA", code: "CA", name: "Canada", dialCode: "+1", flag: "\u{1F1E8}\u{1F1E6}", minLength: 10, maxLength: 10),
+        Country(id: "CL", code: "CL", name: "Chile", dialCode: "+56", flag: "\u{1F1E8}\u{1F1F1}", minLength: 9, maxLength: 9),
+        Country(id: "CN", code: "CN", name: "China", dialCode: "+86", flag: "\u{1F1E8}\u{1F1F3}", minLength: 11, maxLength: 11),
+        Country(id: "CO", code: "CO", name: "Colombia", dialCode: "+57", flag: "\u{1F1E8}\u{1F1F4}", minLength: 10, maxLength: 10),
+        Country(id: "CR", code: "CR", name: "Costa Rica", dialCode: "+506", flag: "\u{1F1E8}\u{1F1F7}", minLength: 8, maxLength: 8),
+        Country(id: "HR", code: "HR", name: "Croatia", dialCode: "+385", flag: "\u{1F1ED}\u{1F1F7}", minLength: 9, maxLength: 9),
+        Country(id: "CU", code: "CU", name: "Cuba", dialCode: "+53", flag: "\u{1F1E8}\u{1F1FA}", minLength: 8, maxLength: 8),
+        Country(id: "CY", code: "CY", name: "Cyprus", dialCode: "+357", flag: "\u{1F1E8}\u{1F1FE}", minLength: 8, maxLength: 8),
+        Country(id: "CZ", code: "CZ", name: "Czech Republic", dialCode: "+420", flag: "\u{1F1E8}\u{1F1FF}", minLength: 9, maxLength: 9),
+        Country(id: "DK", code: "DK", name: "Denmark", dialCode: "+45", flag: "\u{1F1E9}\u{1F1F0}", minLength: 8, maxLength: 8),
+        Country(id: "EC", code: "EC", name: "Ecuador", dialCode: "+593", flag: "\u{1F1EA}\u{1F1E8}", minLength: 9, maxLength: 9),
+        Country(id: "EG", code: "EG", name: "Egypt", dialCode: "+20", flag: "\u{1F1EA}\u{1F1EC}", minLength: 10, maxLength: 10),
+        Country(id: "EE", code: "EE", name: "Estonia", dialCode: "+372", flag: "\u{1F1EA}\u{1F1EA}", minLength: 7, maxLength: 8),
+        Country(id: "ET", code: "ET", name: "Ethiopia", dialCode: "+251", flag: "\u{1F1EA}\u{1F1F9}", minLength: 9, maxLength: 9),
+        Country(id: "FI", code: "FI", name: "Finland", dialCode: "+358", flag: "\u{1F1EB}\u{1F1EE}", minLength: 9, maxLength: 10),
         Country(id: "FR", code: "FR", name: "France", dialCode: "+33", flag: "\u{1F1EB}\u{1F1F7}", minLength: 9, maxLength: 9),
+        Country(id: "GE", code: "GE", name: "Georgia", dialCode: "+995", flag: "\u{1F1EC}\u{1F1EA}", minLength: 9, maxLength: 9),
+        Country(id: "DE", code: "DE", name: "Germany", dialCode: "+49", flag: "\u{1F1E9}\u{1F1EA}", minLength: 10, maxLength: 11),
+        Country(id: "GH", code: "GH", name: "Ghana", dialCode: "+233", flag: "\u{1F1EC}\u{1F1ED}", minLength: 9, maxLength: 10),
+        Country(id: "GR", code: "GR", name: "Greece", dialCode: "+30", flag: "\u{1F1EC}\u{1F1F7}", minLength: 10, maxLength: 10),
+        Country(id: "HK", code: "HK", name: "Hong Kong", dialCode: "+852", flag: "\u{1F1ED}\u{1F1F0}", minLength: 8, maxLength: 8),
+        Country(id: "HU", code: "HU", name: "Hungary", dialCode: "+36", flag: "\u{1F1ED}\u{1F1FA}", minLength: 9, maxLength: 9),
+        Country(id: "IS", code: "IS", name: "Iceland", dialCode: "+354", flag: "\u{1F1EE}\u{1F1F8}", minLength: 7, maxLength: 7),
+        Country(id: "IN", code: "IN", name: "India", dialCode: "+91", flag: "\u{1F1EE}\u{1F1F3}", minLength: 10, maxLength: 10),
+        Country(id: "ID", code: "ID", name: "Indonesia", dialCode: "+62", flag: "\u{1F1EE}\u{1F1E9}", minLength: 10, maxLength: 12),
+        Country(id: "IR", code: "IR", name: "Iran", dialCode: "+98", flag: "\u{1F1EE}\u{1F1F7}", minLength: 10, maxLength: 10),
+        Country(id: "IQ", code: "IQ", name: "Iraq", dialCode: "+964", flag: "\u{1F1EE}\u{1F1F6}", minLength: 10, maxLength: 10),
+        Country(id: "IE", code: "IE", name: "Ireland", dialCode: "+353", flag: "\u{1F1EE}\u{1F1EA}", minLength: 9, maxLength: 9),
+        Country(id: "IL", code: "IL", name: "Israel", dialCode: "+972", flag: "\u{1F1EE}\u{1F1F1}", minLength: 9, maxLength: 10),
+        Country(id: "IT", code: "IT", name: "Italy", dialCode: "+39", flag: "\u{1F1EE}\u{1F1F9}", minLength: 9, maxLength: 10),
+        Country(id: "JM", code: "JM", name: "Jamaica", dialCode: "+1876", flag: "\u{1F1EF}\u{1F1F2}", minLength: 7, maxLength: 7),
         Country(id: "JP", code: "JP", name: "Japan", dialCode: "+81", flag: "\u{1F1EF}\u{1F1F5}", minLength: 10, maxLength: 11),
+        Country(id: "JO", code: "JO", name: "Jordan", dialCode: "+962", flag: "\u{1F1EF}\u{1F1F4}", minLength: 9, maxLength: 9),
+        Country(id: "KZ", code: "KZ", name: "Kazakhstan", dialCode: "+7", flag: "\u{1F1F0}\u{1F1FF}", minLength: 10, maxLength: 10),
+        Country(id: "KE", code: "KE", name: "Kenya", dialCode: "+254", flag: "\u{1F1F0}\u{1F1EA}", minLength: 9, maxLength: 10),
+        Country(id: "KW", code: "KW", name: "Kuwait", dialCode: "+965", flag: "\u{1F1F0}\u{1F1FC}", minLength: 8, maxLength: 8),
+        Country(id: "KG", code: "KG", name: "Kyrgyzstan", dialCode: "+996", flag: "\u{1F1F0}\u{1F1EC}", minLength: 9, maxLength: 9),
+        Country(id: "LV", code: "LV", name: "Latvia", dialCode: "+371", flag: "\u{1F1F1}\u{1F1FB}", minLength: 8, maxLength: 8),
+        Country(id: "LB", code: "LB", name: "Lebanon", dialCode: "+961", flag: "\u{1F1F1}\u{1F1E7}", minLength: 7, maxLength: 8),
+        Country(id: "LY", code: "LY", name: "Libya", dialCode: "+218", flag: "\u{1F1F1}\u{1F1FE}", minLength: 9, maxLength: 10),
+        Country(id: "LT", code: "LT", name: "Lithuania", dialCode: "+370", flag: "\u{1F1F1}\u{1F1F9}", minLength: 8, maxLength: 8),
+        Country(id: "LU", code: "LU", name: "Luxembourg", dialCode: "+352", flag: "\u{1F1F1}\u{1F1FA}", minLength: 9, maxLength: 9),
+        Country(id: "MO", code: "MO", name: "Macau", dialCode: "+853", flag: "\u{1F1F2}\u{1F1F4}", minLength: 8, maxLength: 8),
+        Country(id: "MY", code: "MY", name: "Malaysia", dialCode: "+60", flag: "\u{1F1F2}\u{1F1FE}", minLength: 9, maxLength: 10),
+        Country(id: "MV", code: "MV", name: "Maldives", dialCode: "+960", flag: "\u{1F1F2}\u{1F1FB}", minLength: 7, maxLength: 7),
+        Country(id: "MX", code: "MX", name: "Mexico", dialCode: "+52", flag: "\u{1F1F2}\u{1F1FD}", minLength: 10, maxLength: 10),
+        Country(id: "MD", code: "MD", name: "Moldova", dialCode: "+373", flag: "\u{1F1F2}\u{1F1E9}", minLength: 8, maxLength: 8),
+        Country(id: "MN", code: "MN", name: "Mongolia", dialCode: "+976", flag: "\u{1F1F2}\u{1F1F3}", minLength: 8, maxLength: 8),
+        Country(id: "MA", code: "MA", name: "Morocco", dialCode: "+212", flag: "\u{1F1F2}\u{1F1E6}", minLength: 9, maxLength: 9),
+        Country(id: "MM", code: "MM", name: "Myanmar", dialCode: "+95", flag: "\u{1F1F2}\u{1F1F2}", minLength: 8, maxLength: 10),
+        Country(id: "NP", code: "NP", name: "Nepal", dialCode: "+977", flag: "\u{1F1F3}\u{1F1F5}", minLength: 10, maxLength: 10),
+        Country(id: "NL", code: "NL", name: "Netherlands", dialCode: "+31", flag: "\u{1F1F3}\u{1F1F1}", minLength: 9, maxLength: 9),
+        Country(id: "NZ", code: "NZ", name: "New Zealand", dialCode: "+64", flag: "\u{1F1F3}\u{1F1FF}", minLength: 8, maxLength: 10),
+        Country(id: "NG", code: "NG", name: "Nigeria", dialCode: "+234", flag: "\u{1F1F3}\u{1F1EC}", minLength: 10, maxLength: 11),
+        Country(id: "NO", code: "NO", name: "Norway", dialCode: "+47", flag: "\u{1F1F3}\u{1F1F4}", minLength: 8, maxLength: 8),
+        Country(id: "OM", code: "OM", name: "Oman", dialCode: "+968", flag: "\u{1F1F4}\u{1F1F2}", minLength: 8, maxLength: 8),
+        Country(id: "PK", code: "PK", name: "Pakistan", dialCode: "+92", flag: "\u{1F1F5}\u{1F1F0}", minLength: 10, maxLength: 10),
+        Country(id: "PA", code: "PA", name: "Panama", dialCode: "+507", flag: "\u{1F1F5}\u{1F1E6}", minLength: 7, maxLength: 8),
+        Country(id: "PE", code: "PE", name: "Peru", dialCode: "+51", flag: "\u{1F1F5}\u{1F1EA}", minLength: 9, maxLength: 9),
+        Country(id: "PH", code: "PH", name: "Philippines", dialCode: "+63", flag: "\u{1F1F5}\u{1F1ED}", minLength: 10, maxLength: 10),
+        Country(id: "PL", code: "PL", name: "Poland", dialCode: "+48", flag: "\u{1F1F5}\u{1F1F1}", minLength: 9, maxLength: 9),
+        Country(id: "PT", code: "PT", name: "Portugal", dialCode: "+351", flag: "\u{1F1F5}\u{1F1F9}", minLength: 9, maxLength: 9),
+        Country(id: "QA", code: "QA", name: "Qatar", dialCode: "+974", flag: "\u{1F1F6}\u{1F1E6}", minLength: 8, maxLength: 8),
+        Country(id: "RO", code: "RO", name: "Romania", dialCode: "+40", flag: "\u{1F1F7}\u{1F1F4}", minLength: 9, maxLength: 10),
+        Country(id: "RU", code: "RU", name: "Russia", dialCode: "+7", flag: "\u{1F1F7}\u{1F1FA}", minLength: 10, maxLength: 10),
+        Country(id: "SA", code: "SA", name: "Saudi Arabia", dialCode: "+966", flag: "\u{1F1F8}\u{1F1E6}", minLength: 9, maxLength: 9),
+        Country(id: "RS", code: "RS", name: "Serbia", dialCode: "+381", flag: "\u{1F1F7}\u{1F1F8}", minLength: 9, maxLength: 10),
         Country(id: "SG", code: "SG", name: "Singapore", dialCode: "+65", flag: "\u{1F1F8}\u{1F1EC}", minLength: 8, maxLength: 8),
+        Country(id: "SK", code: "SK", name: "Slovakia", dialCode: "+421", flag: "\u{1F1F8}\u{1F1F0}", minLength: 9, maxLength: 9),
+        Country(id: "SI", code: "SI", name: "Slovenia", dialCode: "+386", flag: "\u{1F1F8}\u{1F1EE}", minLength: 8, maxLength: 8),
+        Country(id: "ZA", code: "ZA", name: "South Africa", dialCode: "+27", flag: "\u{1F1FF}\u{1F1E6}", minLength: 9, maxLength: 9),
+        Country(id: "KR", code: "KR", name: "South Korea", dialCode: "+82", flag: "\u{1F1F0}\u{1F1F7}", minLength: 10, maxLength: 11),
+        Country(id: "ES", code: "ES", name: "Spain", dialCode: "+34", flag: "\u{1F1EA}\u{1F1F8}", minLength: 9, maxLength: 9),
+        Country(id: "LK", code: "LK", name: "Sri Lanka", dialCode: "+94", flag: "\u{1F1F1}\u{1F1F0}", minLength: 9, maxLength: 9),
+        Country(id: "SE", code: "SE", name: "Sweden", dialCode: "+46", flag: "\u{1F1F8}\u{1F1EA}", minLength: 9, maxLength: 10),
+        Country(id: "CH", code: "CH", name: "Switzerland", dialCode: "+41", flag: "\u{1F1E8}\u{1F1ED}", minLength: 9, maxLength: 9),
+        Country(id: "TW", code: "TW", name: "Taiwan", dialCode: "+886", flag: "\u{1F1F9}\u{1F1FC}", minLength: 9, maxLength: 10),
+        Country(id: "TZ", code: "TZ", name: "Tanzania", dialCode: "+255", flag: "\u{1F1F9}\u{1F1FF}", minLength: 9, maxLength: 9),
+        Country(id: "TH", code: "TH", name: "Thailand", dialCode: "+66", flag: "\u{1F1F9}\u{1F1ED}", minLength: 9, maxLength: 9),
+        Country(id: "TR", code: "TR", name: "Turkey", dialCode: "+90", flag: "\u{1F1F9}\u{1F1F7}", minLength: 10, maxLength: 10),
+        Country(id: "UA", code: "UA", name: "Ukraine", dialCode: "+380", flag: "\u{1F1FA}\u{1F1E6}", minLength: 9, maxLength: 9),
         Country(id: "AE", code: "AE", name: "UAE", dialCode: "+971", flag: "\u{1F1E6}\u{1F1EA}", minLength: 9, maxLength: 9),
+        Country(id: "GB", code: "GB", name: "United Kingdom", dialCode: "+44", flag: "\u{1F1EC}\u{1F1E7}", minLength: 10, maxLength: 11),
+        Country(id: "US", code: "US", name: "United States", dialCode: "+1", flag: "\u{1F1FA}\u{1F1F8}", minLength: 10, maxLength: 10),
+        Country(id: "UY", code: "UY", name: "Uruguay", dialCode: "+598", flag: "\u{1F1FA}\u{1F1FE}", minLength: 8, maxLength: 8),
+        Country(id: "UZ", code: "UZ", name: "Uzbekistan", dialCode: "+998", flag: "\u{1F1FA}\u{1F1FF}", minLength: 9, maxLength: 9),
+        Country(id: "VE", code: "VE", name: "Venezuela", dialCode: "+58", flag: "\u{1F1FB}\u{1F1EA}", minLength: 10, maxLength: 10),
+        Country(id: "VN", code: "VN", name: "Vietnam", dialCode: "+84", flag: "\u{1F1FB}\u{1F1F3}", minLength: 9, maxLength: 10),
+        Country(id: "ZM", code: "ZM", name: "Zambia", dialCode: "+260", flag: "\u{1F1FF}\u{1F1F2}", minLength: 9, maxLength: 9),
+        Country(id: "ZW", code: "ZW", name: "Zimbabwe", dialCode: "+263", flag: "\u{1F1FF}\u{1F1FC}", minLength: 9, maxLength: 9),
     ]
+
+    /// Returns the country matching the device's current locale/region,
+    /// falling back to United States if no match is found.
+    static var deviceDefault: Country {
+        let regionCode: String? = {
+            // 1. Prefer the device's current region setting (most reliable)
+            if let region = Locale.current.region?.identifier {
+                return region
+            }
+            // 2. Legacy fallback
+            return Locale.current.language.region?.identifier
+        }()
+
+        if let code = regionCode,
+           let match = all.first(where: { $0.code == code }) {
+            return match
+        }
+        // Fallback to US
+        return all.first(where: { $0.code == "US" }) ?? all[0]
+    }
 }
 

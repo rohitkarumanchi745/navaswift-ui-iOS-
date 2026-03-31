@@ -7,7 +7,12 @@ struct DiscoverView: View {
     @EnvironmentObject var auth: AuthManager
     @EnvironmentObject var storeKit: StoreKitManager
     @EnvironmentObject var networkMonitor: NetworkMonitor
+    @EnvironmentObject var flService: FederatedLearningService
+    @EnvironmentObject var musicService: MusicTasteSyncService
+    @EnvironmentObject var fitnessService: FitnessService
     @State private var profiles: [DiscoverProfile] = []
+    @State private var musicCompatibility: [String: MusicCompatibilityResponse] = [:]
+    @State private var fitnessStats: [String: FitnessStatsResponse] = [:]
     @State private var currentIndex = 0
     @State private var isLoading = true
     @State private var offset: CGSize = .zero
@@ -19,6 +24,9 @@ struct DiscoverView: View {
     @State private var showSuperLikeFeedback = false
     @State private var showMessageSheet = false
     @State private var messageText = ""
+    @State private var isSwipeAnimating = false
+    @State private var isFetchingMore = false
+    @State private var seenProfileIds: Set<String> = []
 
     #if canImport(UIKit)
     private let screenWidth = UIScreen.main.bounds.width
@@ -67,16 +75,6 @@ struct DiscoverView: View {
 
                     NavigationLink(destination: ReelsView(selectedTab: .constant(0))) {
                         Image(systemName: "play.rectangle.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(.white.opacity(0.8))
-                            .frame(width: 40, height: 40)
-                            .background(.white.opacity(0.1))
-                            .clipShape(Circle())
-                            .overlay(Circle().stroke(.white.opacity(0.15), lineWidth: 1))
-                    }
-
-                    NavigationLink(destination: StudentSearchView()) {
-                        Image(systemName: "magnifyingglass")
                             .font(.system(size: 20))
                             .foregroundColor(.white.opacity(0.8))
                             .frame(width: 40, height: 40)
@@ -165,43 +163,53 @@ struct DiscoverView: View {
                 } else if currentIndex >= profiles.count {
                     // Empty state
                     Spacer()
-                    VStack(spacing: AppSpacing.xl) {
-                        Circle()
-                            .fill(Color(hex: "9B7FCA").opacity(0.15))
-                            .frame(width: 120, height: 120)
-                            .overlay {
-                                Image(systemName: "heart")
-                                    .font(.system(size: 48))
-                                    .foregroundStyle(Color(hex: "C9A0DC"))
-                            }
-
-                        Text("No more profiles")
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundColor(.white)
-
-                        Text("Check back later for new people in your area")
-                            .foregroundStyle(.white.opacity(0.5))
-                            .multilineTextAlignment(.center)
-
-                        Button {
-                            fetchProfiles()
-                        } label: {
-                            Text("Refresh")
-                                .font(.system(size: 16, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, AppSpacing.xxxl)
-                                .padding(.vertical, AppSpacing.md)
-                                .background(
-                                    LinearGradient(
-                                        colors: [Color(hex: "6C5CE7"), Color(hex: "845EC2")],
-                                        startPoint: .leading,
-                                        endPoint: .trailing
-                                    )
-                                )
-                                .clipShape(Capsule())
+                    if isFetchingMore {
+                        VStack(spacing: AppSpacing.lg) {
+                            ProgressView()
+                                .scaleEffect(1.2)
+                                .tint(Color(hex: "C9A0DC"))
+                            Text("Finding more people...")
+                                .foregroundStyle(.white.opacity(0.5))
                         }
+                    } else {
+                        VStack(spacing: AppSpacing.xl) {
+                            Circle()
+                                .fill(Color(hex: "9B7FCA").opacity(0.15))
+                                .frame(width: 120, height: 120)
+                                .overlay {
+                                    Image(systemName: "heart")
+                                        .font(.system(size: 48))
+                                        .foregroundStyle(Color(hex: "C9A0DC"))
+                                }
+
+                            Text("No more profiles")
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundColor(.white)
+
+                            Text("Check back later for new people in your area")
+                                .foregroundStyle(.white.opacity(0.5))
+                                .multilineTextAlignment(.center)
+
+                            Button {
+                                fetchProfiles()
+                            } label: {
+                                Text("Refresh")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, AppSpacing.xxxl)
+                                    .padding(.vertical, AppSpacing.md)
+                                    .background(
+                                        LinearGradient(
+                                            colors: [Color(hex: "6C5CE7"), Color(hex: "845EC2")],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                    )
+                                    .clipShape(Capsule())
+                            }
+                        }
+                        .padding(.horizontal, AppSpacing.xxxl)
                     }
-                    .padding(.horizontal, AppSpacing.xxxl)
                     Spacer()
                 } else {
                     // Card stack + action buttons
@@ -209,7 +217,7 @@ struct DiscoverView: View {
                         ZStack {
                             ForEach(Array(profiles[currentIndex..<min(currentIndex + 2, profiles.count)].enumerated().reversed()), id: \.element.id) { idx, profile in
                                 let isFirst = idx == 0
-                                SwipeCard(profile: profile, isFirst: isFirst, offset: isFirst ? offset : .zero, showDetails: isFirst && showDetails)
+                                SwipeCard(profile: profile, isFirst: isFirst, offset: isFirst ? offset : .zero, showDetails: isFirst && showDetails, musicCompatibility: musicCompatibility[profile.id], fitnessStats: fitnessStats[profile.id])
                                     .scaleEffect(isFirst ? 1.0 : 0.95)
                                     .offset(y: isFirst ? 0 : 10)
                                     .gesture(isFirst ? dragGesture : nil)
@@ -290,7 +298,7 @@ struct DiscoverView: View {
                 }
             }
         }
-        .onAppear {
+        .task {
             fetchProfiles()
             withAnimation(.easeInOut(duration: 4).repeatForever(autoreverses: true)) {
                 animateOrbs = true
@@ -345,65 +353,78 @@ struct DiscoverView: View {
     }
 
     private func swipeRight() {
-        guard let profile = profiles[safe: currentIndex] else { return }
+        guard !isSwipeAnimating, let profile = profiles[safe: currentIndex] else { return }
+        isSwipeAnimating = true
         withAnimation(.spring(response: 0.3)) {
             offset = CGSize(width: screenWidth + 100, height: 0)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             handleSwipe(.like, profile: profile)
             offset = .zero
+            isSwipeAnimating = false
         }
     }
 
     private func swipeLeft() {
-        guard let profile = profiles[safe: currentIndex] else { return }
+        guard !isSwipeAnimating, let profile = profiles[safe: currentIndex] else { return }
+        isSwipeAnimating = true
         withAnimation(.spring(response: 0.3)) {
             offset = CGSize(width: -screenWidth - 100, height: 0)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             handleSwipe(.pass, profile: profile)
             offset = .zero
+            isSwipeAnimating = false
         }
     }
 
     private func swipeUp() {
-        guard let profile = profiles[safe: currentIndex] else { return }
+        guard !isSwipeAnimating, let profile = profiles[safe: currentIndex] else { return }
+        isSwipeAnimating = true
         withAnimation(.spring(response: 0.3)) {
             offset = CGSize(width: 0, height: -600)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             handleSwipe(.superlike, profile: profile)
             offset = .zero
+            isSwipeAnimating = false
         }
     }
 
     private func handleSwipe(_ action: SwipeAction, profile: DiscoverProfile) {
         currentIndex += 1
+        seenProfileIds.insert(profile.id)
+
+        // Prefetch next batch when 5 or fewer profiles remain
+        if currentIndex >= profiles.count - 5 {
+            fetchMoreProfiles()
+        }
+
         guard !profile.id.hasPrefix("demo-") else { return }
 
-        Task {
-            do {
-                if action == .superlike {
-                    try await sendSuperLike(targetUserId: profile.id)
-                } else if action == .like {
-                    let query = """
-                    mutation LikeUser($targetUserId: Int!) {
-                      likeUser(targetUserId: $targetUserId) { success isMutual matchId }
-                    }
-                    """
-                    let _: [String: Any] = try await APIService.shared.graphQL(
-                        query: query,
-                        variables: ["targetUserId": Int(profile.id) ?? 0]
-                    )
-                } else {
-                    let query = "mutation PassUser($targetUserId: Int!) { passUser(targetUserId: $targetUserId) }"
-                    let _: [String: Any] = try await APIService.shared.graphQL(
-                        query: query,
-                        variables: ["targetUserId": Int(profile.id) ?? 0]
-                    )
+        // Record FL training sample (fire-and-forget, never blocks swipe UX)
+        flService.recordSample(profile: profile, liked: action == .like || action == .superlike)
+
+        // Use offline queue — fires immediately if online, persists if offline
+        let queueAction: OfflineActionQueue.ActionType
+        switch action {
+        case .like: queueAction = .like
+        case .pass: queueAction = .pass
+        case .superlike: queueAction = .superLike
+        }
+        OfflineActionQueue.shared.enqueue(targetUserId: profile.id, action: queueAction)
+
+        // Show super-like feedback UI (fire-and-forget)
+        if action == .superlike {
+            Task {
+                await MainActor.run {
+                    superLikeMessage = "Super Like sent!"
+                    showSuperLikeFeedback = true
                 }
-            } catch {
-                NavLog.warning("Swipe action failed for \(profile.id): \(error.localizedDescription)", category: .network)
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                await MainActor.run {
+                    showSuperLikeFeedback = false
+                }
             }
         }
     }
@@ -646,8 +667,16 @@ struct DiscoverView: View {
     }
 
     private func fetchProfiles() {
-        isLoading = true
         errorMessage = nil
+
+        // Layer 1: Show cached profiles instantly while network loads
+        if profiles.isEmpty,
+           let cached = LocalCache.shared.load([DiscoverProfile].self, forKey: .discoverFeed, maxAge: 3600) {
+            profiles = cached
+            currentIndex = 0
+        }
+
+        isLoading = profiles.isEmpty
         Task {
             do {
                 let query = """
@@ -708,7 +737,89 @@ struct DiscoverView: View {
                 }
             }
             currentIndex = 0
+            seenProfileIds = Set(profiles.map(\.id))
             isLoading = false
+
+            // Fetch music compatibility and fitness stats for loaded profiles
+            let loadedProfiles = profiles
+            for profile in loadedProfiles {
+                Task {
+                    if let compat = await musicService.fetchCompatibility(withUserId: profile.id) {
+                        musicCompatibility[profile.id] = compat
+                    }
+                }
+                Task {
+                    if let stats = await fitnessService.fetchStatsForUser(profile.id) {
+                        fitnessStats[profile.id] = stats
+                    }
+                }
+            }
+        }
+    }
+
+    /// Fetches additional profiles, excluding already-seen ones, and appends to the list.
+    private func fetchMoreProfiles() {
+        guard !isFetchingMore else { return }
+        isFetchingMore = true
+        Task {
+            defer { isFetchingMore = false }
+            do {
+                let query = """
+                query Discover($filters: DiscoverFilters) {
+                  discover(filters: $filters) {
+                    id name age bio location photos interests languages
+                    compatibilityScore isVerified professionTitle voiceIntroUrl hasVoiceIntro
+                  }
+                }
+                """
+                let excludeIds = Array(seenProfileIds.prefix(200))
+                let result: [String: Any] = try await APIService.shared.graphQL(
+                    query: query,
+                    variables: ["filters": ["useAi": true, "limit": 20, "excludeIds": excludeIds]]
+                )
+
+                if let discover = result["discover"] as? [[String: Any]], !discover.isEmpty {
+                    let newProfiles = discover.compactMap { p -> DiscoverProfile? in
+                        let id = "\(p["id"] ?? "")"
+                        guard !seenProfileIds.contains(id) else { return nil }
+                        return DiscoverProfile(
+                            id: id,
+                            name: p["name"] as? String,
+                            age: p["age"] as? Int,
+                            location: p["location"] as? String,
+                            profession: p["professionTitle"] as? String,
+                            compatibilityScore: (p["compatibilityScore"] as? Double).map { Int($0) },
+                            bio: p["bio"] as? String,
+                            interests: p["interests"] as? [String],
+                            photos: p["photos"] as? [String],
+                            isVerified: p["isVerified"] as? Bool ?? false,
+                            voiceIntroUrl: p["voiceIntroUrl"] as? String,
+                            hasVoiceIntro: p["hasVoiceIntro"] as? Bool ?? false,
+                            hasReels: false,
+                            languages: p["languages"] as? [String]
+                        )
+                    }
+                    if !newProfiles.isEmpty {
+                        profiles.append(contentsOf: newProfiles)
+                        for p in newProfiles { seenProfileIds.insert(p.id) }
+                        // Prefetch compatibility for new profiles
+                        for profile in newProfiles {
+                            Task {
+                                if let compat = await musicService.fetchCompatibility(withUserId: profile.id) {
+                                    musicCompatibility[profile.id] = compat
+                                }
+                            }
+                            Task {
+                                if let stats = await fitnessService.fetchStatsForUser(profile.id) {
+                                    fitnessStats[profile.id] = stats
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch {
+                NavLog.debug("Discover pagination fetch failed: \(error.localizedDescription)", category: .network)
+            }
         }
     }
 }
@@ -721,6 +832,8 @@ struct SwipeCard: View {
     let isFirst: Bool
     let offset: CGSize
     let showDetails: Bool
+    var musicCompatibility: MusicCompatibilityResponse?
+    var fitnessStats: FitnessStatsResponse?
 
     private var rotation: Double {
         Double(offset.width / 20)
@@ -825,6 +938,34 @@ struct SwipeCard: View {
                                 .font(.system(size: 13, weight: .bold, design: .rounded))
                         }
                         .foregroundStyle(AppColors.gold)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial.opacity(0.8))
+                        .clipShape(Capsule())
+                    }
+
+                    if let music = musicCompatibility, music.score > 0.1 {
+                        HStack(spacing: 5) {
+                            Image(systemName: "music.note")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("\(Int(music.score * 100))%")
+                                .font(.system(size: 13, weight: .bold, design: .rounded))
+                        }
+                        .foregroundStyle(Color(hex: "FF8A9E"))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.ultraThinMaterial.opacity(0.8))
+                        .clipShape(Capsule())
+                    }
+
+                    if let fitness = fitnessStats, fitness.fitnessScore > 0 {
+                        HStack(spacing: 5) {
+                            Image(systemName: "heart.fill")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("\(fitness.fitnessScore)")
+                                .font(.system(size: 13, weight: .bold, design: .rounded))
+                        }
+                        .foregroundStyle(Color(hex: "34C759"))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .background(.ultraThinMaterial.opacity(0.8))

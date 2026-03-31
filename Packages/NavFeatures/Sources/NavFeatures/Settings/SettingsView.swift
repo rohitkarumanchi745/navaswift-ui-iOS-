@@ -11,6 +11,9 @@ struct SettingsView: View {
     @AppStorage("settings_online_status") private var showOnlineStatus = true
     @AppStorage("settings_show_distance") private var showDistance = true
     @AppStorage("settings_read_receipts") private var readReceipts = true
+    @AppStorage("settings_discoverable_contacts") private var discoverableByContacts = true
+    @AppStorage("settings_share_music_taste") private var shareMusicTaste = true
+    @AppStorage("settings_share_fitness_data") private var shareFitnessData = true
     @State private var showDeleteAlert = false
     @State private var showPauseAlert = false
     @State private var isPausing = false
@@ -89,6 +92,22 @@ struct SettingsView: View {
             toggleRow(icon: "location.fill", iconColor: .orange, title: "Show Distance", isOn: $showDistance)
             Divider().padding(.leading, 52)
             toggleRow(icon: "checkmark.message.fill", iconColor: .green, title: "Read Receipts", isOn: $readReceipts)
+            Divider().padding(.leading, 52)
+            toggleRow(icon: "person.2.fill", iconColor: Color(hex: "7BB3FF"), title: "Discoverable by Contacts", isOn: $discoverableByContacts)
+            Divider().padding(.leading, 52)
+            toggleRow(icon: "music.note.list", iconColor: Color(hex: "FF8A9E"), title: "Share Music Taste", isOn: $shareMusicTaste)
+            Divider().padding(.leading, 52)
+            toggleRow(icon: "heart.fill", iconColor: Color(hex: "34C759"), title: "Share Fitness Data", isOn: $shareFitnessData)
+        }
+        .task { await loadPrivacySettings() }
+        .onChange(of: discoverableByContacts) { _, newValue in
+            savePrivacySetting(key: "discoverable_by_contacts", value: newValue)
+        }
+        .onChange(of: shareMusicTaste) { _, newValue in
+            savePrivacySetting(key: "share_music_taste", value: newValue)
+        }
+        .onChange(of: shareFitnessData) { _, newValue in
+            savePrivacySetting(key: "share_fitness_data", value: newValue)
         }
     }
 
@@ -175,6 +194,36 @@ struct SettingsView: View {
             )
             auth.logout()
             isDeleting = false
+        }
+    }
+
+    // MARK: - Privacy Settings Sync
+
+    private func loadPrivacySettings() async {
+        do {
+            let response: PrivacySettingsResponse = try await APIService.shared.get(
+                path: "/privacy/settings"
+            )
+            if let discoverable = response.discoverableByContacts {
+                discoverableByContacts = discoverable
+            }
+            if let shareMusic = response.shareMusicTaste {
+                shareMusicTaste = shareMusic
+            }
+            if let shareFitness = response.shareFitnessData {
+                shareFitnessData = shareFitness
+            }
+        } catch {
+            NavLog.debug("Load privacy settings failed: \(error.localizedDescription)", category: .network)
+        }
+    }
+
+    private func savePrivacySetting(key: String, value: Bool) {
+        Task {
+            let _: PrivacySettingsResponse? = try? await APIService.shared.post(
+                path: "/privacy/settings",
+                body: [key: value]
+            )
         }
     }
 

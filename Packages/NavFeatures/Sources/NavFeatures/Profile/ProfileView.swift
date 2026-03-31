@@ -14,12 +14,29 @@ private struct MyReelItem: Identifiable {
     let thumbnail: UIImage?
 }
 
+/// Codable version for disk caching (no UIImage).
+private struct CachedReelItem: Codable {
+    let id: String
+    let videoUrl: String
+    let caption: String
+    let likeCount: Int
+    let viewCount: Int
+}
+
+private struct CachedReelList: Codable {
+    let reels: [CachedReelItem]
+}
+
 // MARK: - ProfileView
 struct ProfileView: View {
     @EnvironmentObject var auth: AuthManager
     @EnvironmentObject var locationManager: LocationManager
     @EnvironmentObject var storeKit: StoreKitManager
     @EnvironmentObject var uploadService: ReelUploadService
+    @EnvironmentObject var musicService: MusicTasteSyncService
+    @EnvironmentObject var contactService: ContactMatchingService
+    @EnvironmentObject var fitnessService: FitnessService
+    @EnvironmentObject var mapSearchService: MapSearchService
     @State private var activeSection: ProfileSection = .connections
     @State private var scrollOffset: CGFloat = 0
     @State private var showSettings = false
@@ -33,6 +50,8 @@ struct ProfileView: View {
     @State private var showProfessionalVerification = false
     @State private var showAIInsights = false
     @State private var showInvite = false
+    @State private var showVerificationSheet = false
+    @State private var showFeaturesSheet = false
     @State private var animateStats = false
     @State private var floatOffset: CGFloat = 0
     @State private var ringRotation: Double = 0
@@ -225,6 +244,21 @@ struct ProfileView: View {
         .sheet(isPresented: $showInvite) {
             NavigationStack { InviteView() }
         }
+        .sheet(isPresented: $showVerificationSheet) {
+            VerificationSheet(
+                showStudentVerification: $showStudentVerification,
+                showAlumniVerification: $showAlumniVerification,
+                showProfessionalVerification: $showProfessionalVerification
+            )
+        }
+        .sheet(isPresented: $showFeaturesSheet) {
+            FeaturesSheet(
+                showPreferences: $showPreferences,
+                showAIInsights: $showAIInsights,
+                showVoiceIntro: $showVoiceIntro,
+                showInvite: $showInvite
+            )
+        }
         .sheet(isPresented: $showUploadReel) {
             UploadReelView()
                 .environmentObject(uploadService)
@@ -239,7 +273,7 @@ struct ProfileView: View {
                 reels: myReels,
                 startIndex: selectedReelIndex,
                 userName: auth.user?.name ?? "You",
-                userPhoto: auth.user?.photos?.first ?? ""
+                userPhoto: auth.user?.primaryPhoto ?? ""
             )
         }
         .onReceive(NotificationCenter.default.publisher(for: ReelUploadService.didFinishUploadNotification)) { _ in
@@ -342,7 +376,7 @@ struct ProfileView: View {
                         .rotationEffect(.degrees(ringRotation))
 
                     // Photo
-                    AsyncImage(url: AppConfig.resolvePhotoURL(auth.user?.photos?.first)) { image in
+                    AsyncImage(url: AppConfig.resolvePhotoURL(auth.user?.primaryPhoto)) { image in
                         image.resizable().scaledToFill()
                     } placeholder: {
                         ZStack {
@@ -564,160 +598,296 @@ struct ProfileView: View {
     }
 
     // MARK: - Quick Actions
-    private var quickActions: some View {
-        VStack(spacing: 16) {
-            // Premium banner
-            if !storeKit.isPremium {
-                Button { showPremium = true } label: {
-                    HStack(spacing: 14) {
-                        ZStack {
-                            Circle()
-                                .fill(
-                                    LinearGradient(
-                                        colors: [Color(hex: "FFD700"), Color(hex: "F0C27F")],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .frame(width: 42, height: 42)
-                            Image(systemName: "crown.fill")
-                                .font(.system(size: 18))
-                                .foregroundColor(.black.opacity(0.8))
-                        }
+    private var verifiedCount: Int {
+        var count = 0
+        if auth.user?.isVerified == true { count += 1 }
+        if auth.user?.isAlumniVerified == true { count += 1 }
+        return count
+    }
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Upgrade to Premium")
-                                .font(.system(size: 15, weight: .bold))
-                                .foregroundColor(.white)
-                            Text("See who liked you, unlimited likes & more")
-                                .font(.system(size: 12))
-                                .foregroundColor(.white.opacity(0.5))
-                        }
+    private var quickActions: some View {
+        VStack(spacing: 12) {
+            // Consolidated card
+            VStack(spacing: 0) {
+                // Verification row
+                Button { showVerificationSheet = true } label: {
+                    HStack(spacing: 14) {
+                        Image(systemName: "shield.fill")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Color(hex: "4ECDC4"))
+                            .frame(width: 34, height: 34)
+                            .background(Color(hex: "4ECDC4").opacity(0.15))
+                            .clipShape(RoundedRectangle(cornerRadius: 9))
+
+                        Text("Verification")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.white)
 
                         Spacer()
 
-                        Image(systemName: "arrow.right")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(.white.opacity(0.35))
-                    }
-                    .padding(14)
-                    .background(
-                        LinearGradient(
-                            colors: [Color(hex: "2D1B4E"), Color(hex: "1A1B2E")],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(
-                                LinearGradient(
-                                    colors: [Color(hex: "FFD700").opacity(0.4), Color(hex: "FFD700").opacity(0.1)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1
-                            )
-                    )
-                }
-            }
-
-            // Verification group
-            actionGroup(title: "Verification", items: [
-                ActionItem(icon: "graduationcap.fill", label: "Student Verification", color: Color(hex: "7ED4A6"),
-                           verified: auth.user?.isVerified == true) { showStudentVerification = true },
-                ActionItem(icon: "building.columns.fill", label: "Alumni Verification", color: Color(hex: "4A90D9"),
-                           verified: auth.user?.isAlumniVerified == true) { showAlumniVerification = true },
-                ActionItem(icon: "briefcase.fill", label: "Professional Verification", color: Color(hex: "FFB347"),
-                           verified: false) { showProfessionalVerification = true },
-            ])
-
-            // Features group
-            actionGroup(title: "Features", items: [
-                ActionItem(icon: "slider.horizontal.3", label: "Preferences", color: Color(hex: "7BB3FF"),
-                           verified: false) { showPreferences = true },
-                ActionItem(icon: "sparkle.magnifyingglass", label: "AI Insights", color: Color(hex: "C9A0DC"),
-                           verified: false) { showAIInsights = true },
-                ActionItem(icon: "mic.fill", label: "Voice Intro", color: Color(hex: "FF8A9E"),
-                           verified: false) { showVoiceIntro = true },
-                ActionItem(icon: "qrcode", label: "Invite Friends", color: Color(hex: "6C5CE7"),
-                           verified: false) { showInvite = true },
-            ])
-        }
-        .padding(.horizontal, 20)
-    }
-
-    private struct ActionItem {
-        let icon: String
-        let label: String
-        let color: Color
-        let verified: Bool
-        let action: () -> Void
-    }
-
-    private func actionGroup(title: String, items: [ActionItem]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(title.uppercased())
-                .font(.system(size: 11, weight: .bold, design: .rounded))
-                .foregroundColor(.white.opacity(0.3))
-                .tracking(1)
-                .padding(.leading, 4)
-                .padding(.bottom, 8)
-
-            VStack(spacing: 0) {
-                ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                    Button(action: item.action) {
-                        HStack(spacing: 14) {
-                            Image(systemName: item.icon)
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundColor(item.color)
-                                .frame(width: 34, height: 34)
-                                .background(item.color.opacity(0.15))
-                                .clipShape(RoundedRectangle(cornerRadius: 9))
-
-                            Text(item.label)
-                                .font(.system(size: 15, weight: .medium))
-                                .foregroundColor(.white)
-
-                            Spacer()
-
-                            if item.verified {
-                                HStack(spacing: 4) {
-                                    Image(systemName: "checkmark.circle.fill")
-                                        .font(.system(size: 12))
-                                        .foregroundColor(Color(hex: "4ECDC4"))
-                                    Text("Verified")
-                                        .font(.system(size: 11, weight: .semibold))
-                                        .foregroundColor(Color(hex: "4ECDC4"))
-                                }
+                        if verifiedCount > 0 {
+                            Text("\(verifiedCount)/3 Verified")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(Color(hex: "4ECDC4"))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
                                 .background(Color(hex: "4ECDC4").opacity(0.12))
                                 .clipShape(Capsule())
-                            } else {
-                                Image(systemName: "chevron.right")
-                                    .font(.system(size: 12, weight: .semibold))
-                                    .foregroundColor(.white.opacity(0.25))
+                        }
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.25))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Rectangle()
+                    .fill(.white.opacity(0.06))
+                    .frame(height: 1)
+                    .padding(.leading, 62)
+
+                // Features row
+                Button { showFeaturesSheet = true } label: {
+                    HStack(spacing: 14) {
+                        Image(systemName: "sparkles")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Color(hex: "C9A0DC"))
+                            .frame(width: 34, height: 34)
+                            .background(Color(hex: "C9A0DC").opacity(0.15))
+                            .clipShape(RoundedRectangle(cornerRadius: 9))
+
+                        Text("Features & Tools")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.white)
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.25))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Rectangle()
+                    .fill(.white.opacity(0.06))
+                    .frame(height: 1)
+                    .padding(.leading, 62)
+
+                // Music Taste row
+                NavigationLink(destination: MusicTasteView()) {
+                    HStack(spacing: 14) {
+                        Image(systemName: "music.note.list")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Color(hex: "FF8A9E"))
+                            .frame(width: 34, height: 34)
+                            .background(Color(hex: "FF8A9E").opacity(0.15))
+                            .clipShape(RoundedRectangle(cornerRadius: 9))
+
+                        Text("Music Taste")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.white)
+
+                        Spacer()
+
+                        if let taste = musicService.musicTaste, !taste.genres.isEmpty {
+                            Text("\(taste.genres.count) genres")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(Color(hex: "FF8A9E"))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color(hex: "FF8A9E").opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.25))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Rectangle()
+                    .fill(.white.opacity(0.06))
+                    .frame(height: 1)
+                    .padding(.leading, 62)
+
+                // Friends on NAVA row
+                NavigationLink(destination: ContactsOnNavaView()) {
+                    HStack(spacing: 14) {
+                        Image(systemName: "person.2.fill")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Color(hex: "7BB3FF"))
+                            .frame(width: 34, height: 34)
+                            .background(Color(hex: "7BB3FF").opacity(0.15))
+                            .clipShape(RoundedRectangle(cornerRadius: 9))
+
+                        Text("Friends on NAVA")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.white)
+
+                        Spacer()
+
+                        if !contactService.friends.isEmpty {
+                            Text("\(contactService.friends.count) found")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(Color(hex: "7BB3FF"))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color(hex: "7BB3FF").opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.25))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Rectangle()
+                    .fill(.white.opacity(0.06))
+                    .frame(height: 1)
+                    .padding(.leading, 62)
+
+                // Fitness row
+                NavigationLink(destination: FitnessDetailView()) {
+                    HStack(spacing: 14) {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Color(hex: "34C759"))
+                            .frame(width: 34, height: 34)
+                            .background(Color(hex: "34C759").opacity(0.15))
+                            .clipShape(RoundedRectangle(cornerRadius: 9))
+
+                        Text("Fitness")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.white)
+
+                        Spacer()
+
+                        if let stats = fitnessService.fitnessStats, stats.weeklyWorkoutCount > 0 {
+                            Text("\(stats.weeklyWorkoutCount) workouts")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(Color(hex: "34C759"))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color(hex: "34C759").opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.25))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Rectangle()
+                    .fill(.white.opacity(0.06))
+                    .frame(height: 1)
+                    .padding(.leading, 62)
+
+                // Explorer row
+                NavigationLink(destination: ExplorerProfileView()) {
+                    HStack(spacing: 14) {
+                        Image(systemName: "map.fill")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Color(hex: "FF8E53"))
+                            .frame(width: 34, height: 34)
+                            .background(Color(hex: "FF8E53").opacity(0.15))
+                            .clipShape(RoundedRectangle(cornerRadius: 9))
+
+                        Text("Explorer Profile")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundColor(.white)
+
+                        Spacer()
+
+                        if let interests = mapSearchService.explorerInterests {
+                            Text("\(interests.explorerEmoji) \(interests.explorerType)")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(Color(hex: "FF8E53"))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color(hex: "FF8E53").opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.25))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 13)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                // Premium row (only if not premium)
+                if !storeKit.isPremium {
+                    Rectangle()
+                        .fill(.white.opacity(0.06))
+                        .frame(height: 1)
+                        .padding(.leading, 62)
+
+                    Button { showPremium = true } label: {
+                        HStack(spacing: 14) {
+                            Image(systemName: "crown.fill")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(Color(hex: "FFD700"))
+                                .frame(width: 34, height: 34)
+                                .background(
+                                    LinearGradient(
+                                        colors: [Color(hex: "FFD700").opacity(0.2), Color(hex: "F0C27F").opacity(0.15)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 9))
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Upgrade to Premium")
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundColor(.white)
+                                Text("Unlimited likes & more")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(.white.opacity(0.4))
                             }
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundColor(.white.opacity(0.25))
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 13)
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-
-                    if index < items.count - 1 {
-                        Rectangle()
-                            .fill(.white.opacity(0.06))
-                            .frame(height: 1)
-                            .padding(.leading, 62)
-                    }
                 }
             }
             .background(.white.opacity(0.06))
             .clipShape(RoundedRectangle(cornerRadius: 16))
         }
+        .padding(.horizontal, 20)
     }
 
     // MARK: - Section Toggle
@@ -1105,11 +1275,6 @@ struct ProfileView: View {
             }
             .padding(.horizontal, 20)
 
-            // Upload progress pill
-            if uploadService.phase != .idle {
-                ReelUploadProgressPill(uploadService: uploadService)
-                    .padding(.horizontal, 20)
-            }
 
             if isLoadingReels {
                 HStack { Spacer(); ProgressView().tint(.white); Spacer() }
@@ -1399,7 +1564,22 @@ struct ProfileView: View {
 
     private func fetchMyReels() async {
         guard let userId = auth.user?.id, !userId.isEmpty else { return }
-        isLoadingReels = true
+
+        // Layer 1: Load from disk cache instantly (0ms)
+        if myReels.isEmpty,
+           let cached = LocalCache.shared.loadStale(CachedReelList.self, forKey: .myReels) {
+            myReels = cached.reels.map { r in
+                let thumb: UIImage? = LocalCache.shared.loadThumbnail(forReelId: r.id)
+                    .flatMap { UIImage(data: $0) }
+                return MyReelItem(
+                    id: r.id, videoUrl: r.videoUrl, caption: r.caption,
+                    likeCount: r.likeCount, viewCount: r.viewCount, thumbnail: thumb
+                )
+            }
+        }
+
+        // Layer 2: Refresh from network in background
+        isLoadingReels = myReels.isEmpty
         do {
             struct ReelItem: Codable {
                 let id: Int; let video_url: String?; let caption: String?
@@ -1409,21 +1589,40 @@ struct ProfileView: View {
             let response: ReelResponse = try await APIService.shared.get(
                 path: "/reels/user/\(userId)"
             )
+
+            // Build items and cache metadata + thumbnails
             var items: [MyReelItem] = []
+            var cachedItems: [CachedReelItem] = []
             for r in response.reels {
-                let thumb = await generateThumbnail(from: r.video_url, fallback: r.thumbnail_url)
+                let reelId = "\(r.id)"
+                let thumb: UIImage?
+                // Check thumbnail disk cache first
+                if let data = LocalCache.shared.loadThumbnail(forReelId: reelId),
+                   let cached = UIImage(data: data) {
+                    thumb = cached
+                } else {
+                    thumb = await generateThumbnail(from: r.video_url, fallback: r.thumbnail_url)
+                    // Cache generated thumbnail to disk
+                    if let image = thumb, let jpegData = image.jpegData(compressionQuality: 0.7) {
+                        LocalCache.shared.saveThumbnail(jpegData, forReelId: reelId)
+                    }
+                }
                 items.append(MyReelItem(
-                    id: "\(r.id)",
-                    videoUrl: r.video_url ?? "",
-                    caption: r.caption ?? "",
-                    likeCount: r.like_count ?? 0,
-                    viewCount: r.view_count ?? 0,
+                    id: reelId, videoUrl: r.video_url ?? "", caption: r.caption ?? "",
+                    likeCount: r.like_count ?? 0, viewCount: r.view_count ?? 0,
                     thumbnail: thumb
+                ))
+                cachedItems.append(CachedReelItem(
+                    id: reelId, videoUrl: r.video_url ?? "", caption: r.caption ?? "",
+                    likeCount: r.like_count ?? 0, viewCount: r.view_count ?? 0
                 ))
             }
             myReels = items
+
+            // Persist reel metadata to disk cache
+            LocalCache.shared.save(CachedReelList(reels: cachedItems), forKey: .myReels)
         } catch {
-            // No demo fallback — empty state is fine for own reels
+            // Cache hit above covers offline — no additional fallback needed
         }
         isLoadingReels = false
     }
@@ -1726,6 +1925,187 @@ private struct MyReelsPlayerView: View {
             pool.activate(currentIndex: idx ?? 0, urls: playerReels.map { $0.videoUrl })
         }
         .onDisappear { pool.pauseAll() }
+    }
+}
+
+// MARK: - Verification Sheet
+
+private struct VerificationSheet: View {
+    @EnvironmentObject var auth: AuthManager
+    @Binding var showStudentVerification: Bool
+    @Binding var showAlumniVerification: Bool
+    @Binding var showProfessionalVerification: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    private var items: [(icon: String, label: String, color: Color, verified: Bool, action: () -> Void)] {
+        [
+            ("graduationcap.fill", "Student Verification", Color(hex: "7ED4A6"),
+             auth.user?.isVerified == true, { showStudentVerification = true }),
+            ("building.columns.fill", "Alumni Verification", Color(hex: "4A90D9"),
+             auth.user?.isAlumniVerified == true, { showAlumniVerification = true }),
+            ("briefcase.fill", "Professional Verification", Color(hex: "FFB347"),
+             false, { showProfessionalVerification = true }),
+        ]
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color(hex: "1A1B2E").ignoresSafeArea()
+
+                VStack(spacing: 20) {
+                    VStack(spacing: 0) {
+                        ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                            Button(action: item.action) {
+                                HStack(spacing: 14) {
+                                    Image(systemName: item.icon)
+                                        .font(.system(size: 16, weight: .medium))
+                                        .foregroundColor(item.color)
+                                        .frame(width: 34, height: 34)
+                                        .background(item.color.opacity(0.15))
+                                        .clipShape(RoundedRectangle(cornerRadius: 9))
+
+                                    Text(item.label)
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundColor(.white)
+
+                                    Spacer()
+
+                                    if item.verified {
+                                        HStack(spacing: 4) {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .font(.system(size: 12))
+                                                .foregroundColor(Color(hex: "4ECDC4"))
+                                            Text("Verified")
+                                                .font(.system(size: 11, weight: .semibold))
+                                                .foregroundColor(Color(hex: "4ECDC4"))
+                                        }
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color(hex: "4ECDC4").opacity(0.12))
+                                        .clipShape(Capsule())
+                                    } else {
+                                        Image(systemName: "chevron.right")
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundColor(.white.opacity(0.25))
+                                    }
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 13)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+
+                            if index < items.count - 1 {
+                                Rectangle()
+                                    .fill(.white.opacity(0.06))
+                                    .frame(height: 1)
+                                    .padding(.leading, 62)
+                            }
+                        }
+                    }
+                    .background(.white.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .padding(.horizontal, 20)
+
+                    Spacer()
+                }
+                .padding(.top, 20)
+            }
+            .navigationTitle("Verification")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                        .foregroundColor(.white)
+                }
+            }
+        }
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+    }
+}
+
+// MARK: - Features Sheet
+
+private struct FeaturesSheet: View {
+    @Binding var showPreferences: Bool
+    @Binding var showAIInsights: Bool
+    @Binding var showVoiceIntro: Bool
+    @Binding var showInvite: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    private var items: [(icon: String, label: String, color: Color, action: () -> Void)] {
+        [
+            ("slider.horizontal.3", "Preferences", Color(hex: "7BB3FF"), { showPreferences = true }),
+            ("sparkle.magnifyingglass", "AI Insights", Color(hex: "C9A0DC"), { showAIInsights = true }),
+            ("mic.fill", "Voice Intro", Color(hex: "FF8A9E"), { showVoiceIntro = true }),
+            ("qrcode", "Invite Friends", Color(hex: "6C5CE7"), { showInvite = true }),
+        ]
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Color(hex: "1A1B2E").ignoresSafeArea()
+
+                VStack(spacing: 20) {
+                    VStack(spacing: 0) {
+                        ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                            Button(action: item.action) {
+                                HStack(spacing: 14) {
+                                    Image(systemName: item.icon)
+                                        .font(.system(size: 16, weight: .medium))
+                                        .foregroundColor(item.color)
+                                        .frame(width: 34, height: 34)
+                                        .background(item.color.opacity(0.15))
+                                        .clipShape(RoundedRectangle(cornerRadius: 9))
+
+                                    Text(item.label)
+                                        .font(.system(size: 15, weight: .medium))
+                                        .foregroundColor(.white)
+
+                                    Spacer()
+
+                                    Image(systemName: "chevron.right")
+                                        .font(.system(size: 12, weight: .semibold))
+                                        .foregroundColor(.white.opacity(0.25))
+                                }
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 13)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+
+                            if index < items.count - 1 {
+                                Rectangle()
+                                    .fill(.white.opacity(0.06))
+                                    .frame(height: 1)
+                                    .padding(.leading, 62)
+                            }
+                        }
+                    }
+                    .background(.white.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .padding(.horizontal, 20)
+
+                    Spacer()
+                }
+                .padding(.top, 20)
+            }
+            .navigationTitle("Features")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                        .foregroundColor(.white)
+                }
+            }
+        }
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
     }
 }
 

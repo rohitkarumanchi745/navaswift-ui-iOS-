@@ -3,6 +3,7 @@ import AVFoundation
 import AVKit
 import PhotosUI
 import UniformTypeIdentifiers
+import MapKit
 import NavCore
 import NavNetworking
 import NavServices
@@ -52,6 +53,104 @@ struct Reel: Identifiable {
     let isVerified: Bool
     let location: String
     let music: ReelMusic?
+    /// True when the reel is still being transcoded server-side (HLS not ready, no fallback video).
+    var isProcessing: Bool = false
+}
+
+// MARK: - Reel Video Cache (LRU, last 3 watched reels)
+
+/// Caches the last 3 watched reel videos to disk for offline playback.
+/// Videos are stored in ~/Library/Caches/nava_reel_videos/.
+/// LRU eviction: when a 4th reel is cached, the oldest is deleted.
+public final class ReelVideoCache {
+    public static let shared = ReelVideoCache()
+    private let maxCached = 3
+    private let cacheDir: URL
+    private let session: URLSession
+
+    private init() {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        cacheDir = base.appendingPathComponent("nava_reel_videos", isDirectory: true)
+        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForResource = 120
+        session = URLSession(configuration: config)
+    }
+
+    /// Returns the local file URL for a cached reel, or nil if not cached.
+    func localURL(for remoteURL: String) -> URL? {
+        let file = fileURL(for: remoteURL)
+        return FileManager.default.fileExists(atPath: file.path) ? file : nil
+    }
+
+    /// Downloads a reel video to disk cache in the background.
+    /// Evicts the oldest cached reel if the cache exceeds `maxCached`.
+    /// Skips caching if device has less than 100 MB free disk space.
+    func cacheVideo(from remoteURL: String) {
+        let dest = fileURL(for: remoteURL)
+        guard !FileManager.default.fileExists(atPath: dest.path) else { return }
+        guard let url = AppConfig.resolveMediaURL(remoteURL) else { return }
+        // Skip caching if disk space is low
+        guard Self.freeDiskBytes() > 100 * 1024 * 1024 else { return }
+
+        Task.detached(priority: .utility) { [weak self] in
+            guard let self else { return }
+            do {
+                let (tempURL, _) = try await self.session.download(from: url)
+                try? FileManager.default.moveItem(at: tempURL, to: dest)
+                self.evictIfNeeded()
+            } catch {
+                // Download failed — skip caching
+            }
+        }
+    }
+
+    /// Returns available disk space in bytes, or 0 on failure.
+    static func freeDiskBytes() -> Int64 {
+        guard let attrs = try? FileManager.default.attributesOfFileSystem(forPath: NSHomeDirectory()),
+              let free = attrs[.systemFreeSize] as? Int64 else { return 0 }
+        return free
+    }
+
+    /// Clears all cached reel videos.
+    public func clearAll() {
+        try? FileManager.default.removeItem(at: cacheDir)
+        try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+    }
+
+    // MARK: - Internals
+
+    private func fileURL(for remoteURL: String) -> URL {
+        // Use a stable hash of the URL as the file name
+        let hash = remoteURL.data(using: .utf8)!.base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "+", with: "-")
+            .prefix(64)
+        return cacheDir.appendingPathComponent("\(hash).mp4")
+    }
+
+    private func evictIfNeeded() {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(
+            at: cacheDir,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: .skipsHiddenFiles
+        ) else { return }
+
+        guard files.count > maxCached else { return }
+
+        // Sort oldest first
+        let sorted = files.compactMap { url -> (URL, Date)? in
+            guard let vals = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
+                  let date = vals.contentModificationDate else { return nil }
+            return (url, date)
+        }.sorted { $0.1 < $1.1 }
+
+        // Remove oldest until within budget
+        for i in 0..<(sorted.count - maxCached) {
+            try? fm.removeItem(at: sorted[i].0)
+        }
+    }
 }
 
 // MARK: - Reel Player Pool (Instagram-style, 3-slot circular buffer)
@@ -66,6 +165,7 @@ final class ReelPlayerPool: ObservableObject {
     /// Slot index of the currently active reel (used to gate loop restarts).
     private var activeSlot: Int = 0
     @Published var isMuted: Bool = false
+    private var memoryObserver: NSObjectProtocol?
 
     init() {
         players = (0..<Self.poolSize).map { _ in AVPlayer() }
@@ -75,6 +175,24 @@ final class ReelPlayerPool: ObservableObject {
             p.isMuted = false
             p.automaticallyWaitsToMinimizeStalling = true
         }
+        // Release non-active players on memory pressure
+        memoryObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            NavLog.warning("Memory warning: releasing inactive reel players", category: .general)
+            for slot in 0..<Self.poolSize where slot != self.activeSlot {
+                self.players[slot].pause()
+                self.players[slot].replaceCurrentItem(with: nil)
+                self.loadedURLs[slot] = nil
+            }
+            ReelVideoCache.shared.clearAll()
+        }
+    }
+
+    deinit {
+        if let memoryObserver { NotificationCenter.default.removeObserver(memoryObserver) }
     }
 
     func toggleMute() {
@@ -84,11 +202,13 @@ final class ReelPlayerPool: ObservableObject {
 
     /// Call whenever the active reel index changes.
     /// Loads items for [index-1, index, index+1] and plays the current one.
+    /// Checks ReelVideoCache for a local copy before hitting the network.
     func activate(currentIndex: Int, urls: [String]) {
         guard !urls.isEmpty else { return }
         activeSlot = currentIndex % Self.poolSize
         let lo = max(0, currentIndex - 1)
         let hi = min(urls.count - 1, currentIndex + 1)
+        let videoCache = ReelVideoCache.shared
 
         for idx in lo...hi {
             let slot = idx % Self.poolSize
@@ -99,7 +219,9 @@ final class ReelPlayerPool: ObservableObject {
                     NotificationCenter.default.removeObserver(obs)
                     loopObservers[slot] = nil
                 }
-                if let videoURL = AppConfig.resolveMediaURL(url) {
+                // Prefer local cached file, fall back to network URL
+                let videoURL: URL? = videoCache.localURL(for: url) ?? AppConfig.resolveMediaURL(url)
+                if let videoURL {
                     let item = AVPlayerItem(url: videoURL)
                     item.preferredForwardBufferDuration = 3
                     players[slot].replaceCurrentItem(with: item)
@@ -124,6 +246,8 @@ final class ReelPlayerPool: ObservableObject {
             if idx == currentIndex {
                 players[slot].seek(to: .zero)
                 players[slot].play()
+                // Cache the currently watched reel video to disk for offline playback
+                videoCache.cacheVideo(from: urls[idx])
             } else {
                 players[slot].pause()
             }
@@ -378,21 +502,19 @@ struct ReelsView: View {
             }
             .ignoresSafeArea(.container, edges: .bottom)
 
-            // Floating upload progress pill
-            if uploadService.phase != .idle {
-                VStack {
-                    Spacer()
-                    ReelUploadProgressPill(uploadService: uploadService)
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 90)
-                }
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .animation(.spring(response: 0.4), value: uploadService.phase.isActive)
-            }
         }
         .sheet(isPresented: $showUploadSheet) {
             UploadReelView()
                 .environmentObject(uploadService)
+        }
+        .onChange(of: showUploadSheet) { _, isPresented in
+            // Pause reel audio when the upload/camera sheet opens so it
+            // doesn't bleed into camera recordings; resume when dismissed.
+            if isPresented {
+                pool.pauseAll()
+            } else if let idx = currentIndex {
+                pool.activate(currentIndex: idx, urls: reels.map { $0.videoUrl })
+            }
         }
         .sheet(isPresented: $showUserReels) {
             if let user = selectedReelUser {
@@ -484,13 +606,15 @@ struct ReelsView: View {
             let fetched = response.reels
                 .filter { "\($0.user_id)" != currentUserId }
                 .map { r in
-                    Reel(id: "\(r.id)", userId: "\(r.user_id)", userName: r.creator_name ?? "Unknown",
+                    let resolvedUrl = (r.hls_state == "ready" ? r.hls_url : nil) ?? r.video_url ?? ""
+                    let processing = resolvedUrl.isEmpty && r.hls_state != nil && r.hls_state != "ready"
+                    return Reel(id: "\(r.id)", userId: "\(r.user_id)", userName: r.creator_name ?? "Unknown",
                          userAge: r.creator_age ?? 0, userPhoto: r.creator_photo ?? "",
-                         videoUrl: (r.hls_state == "ready" ? r.hls_url : nil) ?? r.video_url ?? "",
+                         videoUrl: resolvedUrl,
                          caption: r.caption ?? "",
                          likes: r.like_count ?? 0, isLiked: false,
                          isVerified: r.creator_verified ?? false, location: r.creator_location ?? "",
-                         music: r.music)
+                         music: r.music, isProcessing: processing)
                 }
             reels = fetched.isEmpty ? filteredDemos : fetched
         } catch {
@@ -662,15 +786,17 @@ struct UserReelsView: View {
                 path: "/reels/user/\(userId)"
             )
             userReels = response.reels.map { r in
-                Reel(
+                let resolvedUrl = (r.hls_state == "ready" ? r.hls_url : nil) ?? r.video_url ?? ""
+                let processing = resolvedUrl.isEmpty && r.hls_state != nil && r.hls_state != "ready"
+                return Reel(
                     id: "\(r.id)", userId: userId,
                     userName: userName, userAge: 0,
                     userPhoto: userPhoto,
-                    videoUrl: (r.hls_state == "ready" ? r.hls_url : nil) ?? r.video_url ?? "",
+                    videoUrl: resolvedUrl,
                     caption: r.caption ?? "",
                     likes: r.like_count ?? 0, isLiked: false,
                     isVerified: false, location: "",
-                    music: r.music
+                    music: r.music, isProcessing: processing
                 )
             }
         } catch {
@@ -693,6 +819,8 @@ struct ReelCard: View {
     @State private var showMessageSheet = false
     @State private var showLikeCreator = false
     @State private var isPaused = false
+    @State private var playerStatus: AVPlayerItem.Status = .unknown
+    @State private var isBuffering = true
 
     var body: some View {
         GeometryReader { geo in
@@ -703,12 +831,45 @@ struct ReelCard: View {
                     FullScreenVideoPlayer(player: player)
                         .frame(width: geo.size.width, height: geo.size.height)
                         .clipped()
+
+                    // Loading spinner while buffering
+                    if isActive && isBuffering && playerStatus != .failed {
+                        ProgressView()
+                            .tint(.white)
+                            .scaleEffect(1.5)
+                    }
+
+                    // Error overlay if playback failed
+                    if playerStatus == .failed {
+                        VStack(spacing: 12) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .font(.system(size: 40))
+                                .foregroundColor(.white.opacity(0.6))
+                            Text("Video unavailable")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.white.opacity(0.7))
+                        }
+                    }
                 } else {
                     LinearGradient(colors: [Color(hex: "1A1A2E"), Color(hex: "16213E"), Color(hex: "0F3460")],
                                    startPoint: .topLeading, endPoint: .bottomTrailing)
-                    VStack { Spacer()
-                        Image(systemName: "play.circle.fill").font(.system(size: 72)).foregroundColor(.white.opacity(0.3))
-                        Spacer()
+                    if reel.isProcessing {
+                        VStack(spacing: 12) {
+                            ProgressView()
+                                .tint(.white)
+                                .scaleEffect(1.3)
+                            Text("Processing…")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.white.opacity(0.7))
+                            Text("This reel is still being prepared")
+                                .font(.system(size: 13))
+                                .foregroundColor(.white.opacity(0.4))
+                        }
+                    } else {
+                        VStack { Spacer()
+                            Image(systemName: "play.circle.fill").font(.system(size: 72)).foregroundColor(.white.opacity(0.3))
+                            Spacer()
+                        }
                     }
                 }
 
@@ -917,15 +1078,56 @@ struct ReelCard: View {
             if active {
                 trackView()
                 isPaused = false
+                observePlayerItem()
             } else {
                 isPaused = false
             }
+        }
+        .onAppear {
+            if isActive { observePlayerItem() }
         }
         .sheet(isPresented: $showMessageSheet) {
             ReelMessageComposer(reel: reel, isPresented: $showMessageSheet)
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.hidden)
                 .presentationBackground(AppColors.darkBg)
+        }
+    }
+
+    private func observePlayerItem() {
+        playerStatus = .unknown
+        isBuffering = true
+        guard let item = player.currentItem else { return }
+        if item.status == .readyToPlay {
+            playerStatus = .readyToPlay
+            isBuffering = false
+            return
+        }
+        if item.status == .failed {
+            playerStatus = .failed
+            isBuffering = false
+            return
+        }
+        // Poll until status resolves (player pool reuses AVPlayers so KVO can miss)
+        Task { @MainActor in
+            while isActive {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard let current = player.currentItem else { break }
+                playerStatus = current.status
+                if current.status == .readyToPlay {
+                    isBuffering = false
+                    break
+                }
+                if current.status == .failed {
+                    isBuffering = false
+                    break
+                }
+                // Also check if player is actually playing (time is advancing)
+                if current.status == .unknown && player.timeControlStatus == .playing {
+                    isBuffering = false
+                    break
+                }
+            }
         }
     }
 
@@ -1009,23 +1211,24 @@ struct ReelUploadProgressPill: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(statusText)
+                // Single unified label (Instagram-style)
+                Text(uploadService.phase.statusLabel)
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.white)
 
-                // Progress bar
+                // Single unified progress bar
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule()
                             .fill(Color.white.opacity(0.15))
-                            .frame(height: 4)
+                            .frame(height: 3)
                         Capsule()
                             .fill(progressColor)
-                            .frame(width: geo.size.width * uploadService.phase.progress, height: 4)
-                            .animation(.easeInOut(duration: 0.3), value: uploadService.phase.progress)
+                            .frame(width: geo.size.width * uploadService.phase.progress, height: 3)
+                            .animation(.linear(duration: 0.4), value: uploadService.phase.progress)
                     }
                 }
-                .frame(height: 4)
+                .frame(height: 3)
             }
 
             Spacer(minLength: 0)
@@ -1039,20 +1242,6 @@ struct ReelUploadProgressPill: View {
         .environment(\.colorScheme, .dark)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
-    }
-
-    private var statusText: String {
-        switch uploadService.phase {
-        case .idle: return ""
-        case .compressing(let p): return "Compressing \(Int(p * 100))%"
-        case .awaitingFilter: return "Pick a filter"
-        case .exportingFilter(let p): return "Applying filter \(Int(p * 100))%"
-        case .readyToPost: return "Ready to post"
-        case .mixingAudio(let p): return "Mixing audio \(Int(p * 100))%"
-        case .uploading(let p): return "Uploading \(Int(p * 100))%"
-        case .done: return "Upload complete!"
-        case .failed: return "Upload failed — tap to retry"
-        }
     }
 
     private var progressColor: Color {
@@ -1117,6 +1306,15 @@ struct UploadReelView: View {
     @State private var videoPlayer: AVPlayer?
     @State private var musicPlayer: AVPlayer?
     @State private var isPlayingPreview = false
+    @EnvironmentObject var locationManager: LocationManager
+    @State private var reelLocation: String = ""
+    @State private var reelLatitude: Double?
+    @State private var reelLongitude: Double?
+    @State private var showLocationSearch = false
+    @State private var locationSearchText = ""
+    @State private var locationSearchResults: [MKMapItem] = []
+    @EnvironmentObject var networkMonitor: NetworkMonitor
+    @State private var showCellularWarning = false
 
     var body: some View {
         NavigationStack {
@@ -1169,11 +1367,17 @@ struct UploadReelView: View {
                 }
             }
             .fullScreenCover(isPresented: $showCamera) {
-                VideoCameraRecorder { videoURL in
-                    if let url = videoURL {
-                        uploadService.prepare(localURL: url)
-                        uploadService.applyFilter(.original)
-                        hasPickedVideo = true
+                VideoCameraRecorder(isPresented: $showCamera) { url in
+                    Task { @MainActor in
+                        let duration = await videoDuration(for: url)
+                        if duration > 30 {
+                            pendingVideoURL = url
+                            showTrimmer = true
+                        } else {
+                            uploadService.prepare(localURL: url)
+                            uploadService.applyFilter(.original)
+                            hasPickedVideo = true
+                        }
                     }
                 }
                 .ignoresSafeArea()
@@ -1375,6 +1579,9 @@ struct UploadReelView: View {
 
                     // Scope picker (Global / Local)
                     scopePicker
+
+                    // Location picker
+                    locationPickerRow
                 }
                 .padding(.horizontal, 20)
             }
@@ -1389,6 +1596,26 @@ struct UploadReelView: View {
         }
         .task {
             await generateFilterThumbnails()
+        }
+        .onAppear {
+            // Auto-populate location from device if permission granted
+            if reelLocation.isEmpty,
+               locationManager.city != "Unknown",
+               let loc = locationManager.location {
+                reelLocation = locationManager.country.isEmpty
+                    ? locationManager.city
+                    : "\(locationManager.city), \(locationManager.country)"
+                reelLatitude = loc.coordinate.latitude
+                reelLongitude = loc.coordinate.longitude
+            }
+        }
+        .sheet(isPresented: $showLocationSearch) {
+            LocationSearchSheet(
+                selectedLocation: $reelLocation,
+                selectedLatitude: $reelLatitude,
+                selectedLongitude: $reelLongitude,
+                userLocation: locationManager.location
+            )
         }
     }
 
@@ -1753,6 +1980,53 @@ struct UploadReelView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
+    // MARK: - Location Picker Row
+
+    private var locationPickerRow: some View {
+        Button { showLocationSearch = true } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "mappin.circle.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(.orange)
+                    .frame(width: 36, height: 36)
+                    .background(Color.orange.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
+
+                if !reelLocation.isEmpty {
+                    Text(reelLocation)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(.white)
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    Button {
+                        reelLocation = ""
+                        reelLatitude = nil
+                        reelLongitude = nil
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(.white.opacity(0.4))
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    Text("Add Location")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(.white.opacity(0.7))
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.3))
+                }
+            }
+            .padding(12)
+            .background(AppColors.darkCard)
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - Post Button
 
     private var postButton: some View {
@@ -1764,11 +2038,11 @@ struct UploadReelView: View {
         }()
 
         return Button {
-            stopPreview()
-            uploadService.post(caption: caption, scope: postScope.rawValue.lowercased(), music: selectedMusic, musicVolume: musicVolume, authToken: auth.token)
-            // Dismiss immediately — upload continues in background via the
-            // app-level ReelUploadService singleton. Progress shown in MainTabView.
-            dismiss()
+            if networkMonitor.isExpensive {
+                showCellularWarning = true
+            } else {
+                performPost()
+            }
         } label: {
             Text("Post")
                 .font(.system(size: 15, weight: .semibold))
@@ -1779,6 +2053,18 @@ struct UploadReelView: View {
                 .clipShape(Capsule())
         }
         .disabled(!isReady)
+        .alert("Upload on Cellular?", isPresented: $showCellularWarning) {
+            Button("Use Wi-Fi Later", role: .cancel) {}
+            Button("Upload Now") { performPost() }
+        } message: {
+            Text("You're on a cellular connection. Uploading a video may use significant data.")
+        }
+    }
+
+    private func performPost() {
+        stopPreview()
+        uploadService.post(caption: caption, scope: postScope.rawValue.lowercased(), music: selectedMusic, musicVolume: musicVolume, location: reelLocation.isEmpty ? nil : reelLocation, latitude: reelLatitude, longitude: reelLongitude, authToken: auth.token)
+        dismiss()
     }
 
     // MARK: - Generate Filter Thumbnails
@@ -1822,16 +2108,21 @@ struct VideoTransferable: Transferable {
     }
 }
 
-// MARK: - Video Camera Recorder (UIImagePickerController)
+// MARK: - Video Camera Recorder
 
+/// UIViewControllerRepresentable wrapper for the camera video recorder.
+/// SwiftUI owns the presentation via `.fullScreenCover(isPresented:)`.
+/// The delegate sets `isPresented = false` which lets SwiftUI dismiss cleanly —
+/// no manual `picker.dismiss()` needed, avoiding the white-screen race.
 struct VideoCameraRecorder: UIViewControllerRepresentable {
-    let onComplete: (URL?) -> Void
+    @Binding var isPresented: Bool
+    let onVideoRecorded: (URL) -> Void
 
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
         picker.sourceType = .camera
         picker.mediaTypes = ["public.movie"]
-        picker.videoMaximumDuration = 30
+        picker.videoMaximumDuration = 600
         picker.videoQuality = .typeHigh
         picker.cameraCaptureMode = .video
         picker.delegate = context.coordinator
@@ -1841,33 +2132,30 @@ struct VideoCameraRecorder: UIViewControllerRepresentable {
     func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onComplete: onComplete)
+        Coordinator(parent: self)
     }
 
     class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let onComplete: (URL?) -> Void
+        let parent: VideoCameraRecorder
 
-        init(onComplete: @escaping (URL?) -> Void) {
-            self.onComplete = onComplete
+        init(parent: VideoCameraRecorder) {
+            self.parent = parent
         }
 
         func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-            picker.dismiss(animated: true)
             if let videoURL = info[.mediaURL] as? URL {
-                // Copy to temp directory, preserving the original file extension
                 let ext = videoURL.pathExtension.isEmpty ? "mov" : videoURL.pathExtension
                 let tempURL = FileManager.default.temporaryDirectory
                     .appendingPathComponent("camera_\(UUID().uuidString).\(ext)")
                 try? FileManager.default.copyItem(at: videoURL, to: tempURL)
-                onComplete(tempURL)
-            } else {
-                onComplete(nil)
+                parent.onVideoRecorded(tempURL)
             }
+            // Let SwiftUI handle the dismiss by flipping the binding
+            parent.isPresented = false
         }
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            picker.dismiss(animated: true)
-            onComplete(nil)
+            parent.isPresented = false
         }
     }
 }
@@ -1914,6 +2202,231 @@ struct VideoDocumentPicker: UIViewControllerRepresentable {
                 onPick(tempURL)
             } catch {
                 // Failed to copy — ignore
+            }
+        }
+    }
+}
+
+// MARK: - Location Search Sheet
+
+private struct LocationSearchSheet: View {
+    @Binding var selectedLocation: String
+    @Binding var selectedLatitude: Double?
+    @Binding var selectedLongitude: Double?
+    var userLocation: CLLocation?
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+    @State private var results: [MKMapItem] = []
+    @State private var isSearching = false
+    @State private var searchTask: Task<Void, Never>?
+
+    var body: some View {
+        NavigationStack {
+            List {
+                // Current location option
+                if let loc = userLocation {
+                    Section {
+                        Button {
+                            selectCurrentLocation(loc)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "location.fill")
+                                    .font(.system(size: 16))
+                                    .foregroundColor(.blue)
+                                    .frame(width: 32, height: 32)
+                                    .background(Color.blue.opacity(0.12))
+                                    .clipShape(Circle())
+
+                                Text("Use Current Location")
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundColor(.white)
+
+                                Spacer()
+
+                                if isSearching && searchText.isEmpty {
+                                    ProgressView()
+                                        .scaleEffect(0.8)
+                                }
+                            }
+                        }
+                        .listRowBackground(Color.white.opacity(0.06))
+                    }
+                }
+
+                // Search results
+                if !results.isEmpty {
+                    Section("Nearby Places") {
+                        ForEach(results, id: \.self) { item in
+                            Button {
+                                selectMapItem(item)
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "mappin.circle.fill")
+                                        .font(.system(size: 16))
+                                        .foregroundColor(.orange)
+                                        .frame(width: 32, height: 32)
+                                        .background(Color.orange.opacity(0.12))
+                                        .clipShape(Circle())
+
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(item.name ?? "Unknown")
+                                            .font(.system(size: 15, weight: .medium))
+                                            .foregroundColor(.white)
+                                            .lineLimit(1)
+                                        if let subtitle = formatSubtitle(item) {
+                                            Text(subtitle)
+                                                .font(.system(size: 13))
+                                                .foregroundColor(.white.opacity(0.5))
+                                                .lineLimit(1)
+                                        }
+                                    }
+                                }
+                            }
+                            .listRowBackground(Color.white.opacity(0.06))
+                        }
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(Color(red: 0.1, green: 0.1, blue: 0.14))
+            .searchable(text: $searchText, prompt: "Search places")
+            .onChange(of: searchText) { _, newValue in
+                performSearch(query: newValue)
+            }
+            .navigationTitle("Add Location")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                if !selectedLocation.isEmpty {
+                    ToolbarItem(placement: .destructiveAction) {
+                        Button("Remove") {
+                            selectedLocation = ""
+                            selectedLatitude = nil
+                            selectedLongitude = nil
+                            dismiss()
+                        }
+                        .foregroundColor(.red)
+                    }
+                }
+            }
+            .onAppear {
+                // Load nearby places on open
+                if let loc = userLocation {
+                    searchNearby(location: loc)
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func selectCurrentLocation(_ location: CLLocation) {
+        isSearching = true
+        let geocoder = CLGeocoder()
+        geocoder.reverseGeocodeLocation(location) { placemarks, _ in
+            let placemark = placemarks?.first
+            let city = placemark?.locality ?? "Unknown"
+            let country = placemark?.country ?? ""
+            selectedLocation = country.isEmpty ? city : "\(city), \(country)"
+            selectedLatitude = location.coordinate.latitude
+            selectedLongitude = location.coordinate.longitude
+            isSearching = false
+            dismiss()
+        }
+    }
+
+    private func selectMapItem(_ item: MKMapItem) {
+        let name = item.name ?? ""
+        let locality = item.placemark.locality ?? ""
+        let country = item.placemark.country ?? ""
+
+        // Build display name: "Place, City" or "Place, Country" or just "Place"
+        if !locality.isEmpty && locality != name {
+            selectedLocation = "\(name), \(locality)"
+        } else if !country.isEmpty {
+            selectedLocation = "\(name), \(country)"
+        } else {
+            selectedLocation = name
+        }
+
+        selectedLatitude = item.placemark.coordinate.latitude
+        selectedLongitude = item.placemark.coordinate.longitude
+        dismiss()
+    }
+
+    private func formatSubtitle(_ item: MKMapItem) -> String? {
+        let parts = [
+            item.placemark.locality,
+            item.placemark.administrativeArea,
+            item.placemark.country
+        ].compactMap { $0 }
+        let subtitle = parts.joined(separator: ", ")
+        return subtitle.isEmpty ? nil : subtitle
+    }
+
+    private func performSearch(query: String) {
+        searchTask?.cancel()
+        guard !query.isEmpty else {
+            // Re-load nearby when search is cleared
+            if let loc = userLocation {
+                searchNearby(location: loc)
+            } else {
+                results = []
+            }
+            return
+        }
+
+        searchTask = Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+
+            let request = MKLocalSearch.Request()
+            request.naturalLanguageQuery = query
+            if let loc = userLocation {
+                request.region = MKCoordinateRegion(
+                    center: loc.coordinate,
+                    latitudinalMeters: 50_000,
+                    longitudinalMeters: 50_000
+                )
+            }
+
+            do {
+                let search = MKLocalSearch(request: request)
+                let response = try await search.start()
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    results = response.mapItems
+                }
+            } catch {
+                // Search cancelled or failed — ignore
+            }
+        }
+    }
+
+    private func searchNearby(location: CLLocation) {
+        searchTask?.cancel()
+        searchTask = Task {
+            let request = MKLocalSearch.Request()
+            request.naturalLanguageQuery = "restaurants cafes parks landmarks"
+            request.region = MKCoordinateRegion(
+                center: location.coordinate,
+                latitudinalMeters: 5_000,
+                longitudinalMeters: 5_000
+            )
+
+            do {
+                let search = MKLocalSearch(request: request)
+                let response = try await search.start()
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    results = response.mapItems
+                }
+            } catch {
+                // Search failed — ignore
             }
         }
     }

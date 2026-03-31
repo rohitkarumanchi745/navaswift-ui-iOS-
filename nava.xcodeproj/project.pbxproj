@@ -17,9 +17,22 @@
 		F95C96412F525776007C5560 /* nava.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = nava.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		F9FCDBF52F7A016500D3CC94 /* Exceptions for "nava" folder in "nava" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = F95C96402F525776007C5560 /* nava */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		F95C96432F525776007C5560 /* nava */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				F9FCDBF52F7A016500D3CC94 /* Exceptions for "nava" folder in "nava" target */,
+			);
 			path = nava;
 			sourceTree = "<group>";
 		};
@@ -271,6 +284,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = nava/nava.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 2HQ3496UNK;
@@ -278,9 +292,12 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = nava/Info.plist;
 				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Nava uses ​Apple ​Music to let you add songs to your reels";
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Nava uses Bluetooth to route audio to your connected headphones and speakers during calls and reels.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Nava needs camera access to let you upload profile photos and record video reels.";
+				INFOPLIST_KEY_NSHealthClinicalHealthRecordsShareUsageDescription = "Nava reads your workout data to show fitness stats, track goals, and compete with matches on the leaderboard";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Nava reads your workout data to show fitness stats, track goals, and compete with matches on the leaderboard.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Nava uses your location to show you people nearby and auto-fill your city.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Nava needs microphone access for voice notes, video calls, and recording reels.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
@@ -319,6 +336,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = nava/nava.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 2HQ3496UNK;
@@ -326,9 +344,12 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = nava/Info.plist;
 				INFOPLIST_KEY_NSAppleMusicUsageDescription = "Nava uses ​Apple ​Music to let you add songs to your reels";
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Nava uses Bluetooth to route audio to your connected headphones and speakers during calls and reels.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Nava needs camera access to let you upload profile photos and record video reels.";
+				INFOPLIST_KEY_NSHealthClinicalHealthRecordsShareUsageDescription = "Nava reads your workout data to show fitness stats, track goals, and compete with matches on the leaderboard";
+				INFOPLIST_KEY_NSHealthShareUsageDescription = "Nava reads your workout data to show fitness stats, track goals, and compete with matches on the leaderboard.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Nava uses your location to show you people nearby and auto-fill your city.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Nava needs microphone access for voice notes, video calls, and recording reels.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;

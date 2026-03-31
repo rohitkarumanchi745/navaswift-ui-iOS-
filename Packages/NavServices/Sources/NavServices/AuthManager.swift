@@ -9,7 +9,7 @@ public enum AuthStatus: Equatable, Hashable {
 }
 
 // MARK: - Keychain Helper
-private struct KeychainHelper {
+struct KeychainHelper {
     static func save(key: String, value: String) {
         guard let data = value.data(using: .utf8) else { return }
         let query: [String: Any] = [
@@ -339,6 +339,7 @@ public class AuthManager: ObservableObject {
 
             user = profile
             status = .authenticated
+            LocalCache.shared.save(profile, forKey: .userProfile)
             NavLog.info("refreshProfile succeeded: \(profile.displayName)", category: .auth)
             return profile
         } catch is CancellationError {
@@ -346,6 +347,13 @@ public class AuthManager: ObservableObject {
             return nil
         } catch {
             NavLog.error("refreshProfile failed: \(error)", category: .auth)
+            // Fall back to cached profile if available (offline support)
+            if let cached = LocalCache.shared.loadStale(UserProfile.self, forKey: .userProfile) {
+                user = cached
+                status = .authenticated
+                NavLog.info("refreshProfile: using cached profile for \(cached.displayName)", category: .auth)
+                return cached
+            }
             status = .unauthenticated
             user = nil
             return nil

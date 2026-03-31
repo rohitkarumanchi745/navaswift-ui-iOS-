@@ -1,6 +1,6 @@
 # NAVA - Dating App (iOS)
 
-A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum** backend. NAVA combines swipe-based discovery, video reels, real-time chat, and premium subscriptions into a native iOS experience.
+A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum** backend. NAVA combines swipe-based discovery, video reels, real-time chat, social features, fitness tracking, outdoor exploration, and premium subscriptions into a native iOS experience.
 
 ## Features
 
@@ -8,11 +8,14 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 - **Swipe-based discovery** with like, pass, and swipe-up super-like gestures
 - **Super Like** flow with dedicated `POST /match/super-like` endpoint, animated stamp overlay, and feedback banner
 - **AI-powered insights** for match recommendations with compatibility scoring
+- **Federated learning** — on-device model training from swipe interactions sends weight deltas (not raw data) to the server for privacy-preserving recommendation improvements
 - **Location-based** proximity filtering with configurable distance
 - **University discovery** for student-verified profiles
 - **Sent Likes** view with super-liked vs regular likes separated into sections
 - **Matches** view with "Super Liked You" horizontal carousel, message requests, and regular likes grid
 - **Reel & voice intro indicators** on discover cards showing whether a user has uploaded reels or a voice intro
+- **Infinite pagination** — discover feed auto-fetches more profiles when running low, with `excludeIds` deduplication to prevent repeats
+- **Offline swipe queue** — swipes made without connectivity are persisted to disk and flushed automatically when the network is restored (24-hour expiry)
 
 ### Student Search
 - **University-grouped results** — search results grouped by university with sticky headers showing graduation cap icon, university name, and student count
@@ -20,6 +23,43 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 - **Name + university search** — typing a name shows all matching users grouped under their universities
 - **Advanced filters** — university, city, country, gender, age range, university tier
 - **Dynamic pagination** — 50-result limit when filtering by university, 20 otherwise
+
+### Music Taste & Compatibility
+- **Apple Music integration** — syncs top genres and artists via MusicKit
+- **Spotify integration** — OAuth 2.0 PKCE flow via `ASWebAuthenticationSession`, syncs top artists and genres from Spotify Web API
+- **Dual-source sync** — merges and deduplicates Apple Music + Spotify data, posts top 10 genres and artists to `/music/sync`
+- **Music compatibility** — per-profile compatibility score with shared genres/artists breakdown via `/music/compatibility/:id`
+- **Music Taste view** — genre chips, artist carousel, Spotify connect/disconnect, and compatibility display
+
+### Fitness & Strava
+- **HealthKit integration** — syncs calories, active minutes, and workouts
+- **Strava integration** — OAuth 2.0 flow for importing activities, routes, elevation, and segment efforts
+- **Weekly stats** — calories burned, active minutes, workout count, streak, and fitness score via `/fitness/stats`
+- **Goals & progress** — configurable weekly targets for calories, minutes, and workouts with progress tracking
+- **Leaderboard** — competitive fitness ranking by score
+- **Workout history** — detailed activity log with type icons (hiking, running, cycling, swimming, etc.)
+
+### Outdoor Exploration
+- **Community-curated outdoor spots** — treks, viewpoints, photo spots, lakes, parks, trails, heritage sites, waterfalls, campsites with ratings and match scores
+- **Seasonal guide** — weather and recommendations by season/city
+- **Visit logging** — record visits with weather conditions, duration, calories, and notes
+- **Golden hour detection** — highlights optimal photography timing via sunrise/sunset data
+- **Add new spots** — contribute outdoor discoveries with category, season, and time-of-day metadata
+
+### Social Hub
+- **Spots** — location-based ephemeral messages with reactions (like Stories pinned to a place), photo attachments, and message threads
+- **Playgrounds** — group activities (study groups, hangouts, sports, gaming, music, food, travel) with member lists, join status, and capacity limits
+- **Events** — location and date-based event coordination with RSVP tracking
+- **Location search** — integrated map-based location picker for all social features
+
+### Explorer Profile
+- **Map search tracking** — logs place searches and navigation to build an explorer identity
+- **Trending locations** — popular search destinations with search/navigation counts
+- **Explorer profile** — personalized profile showing explorer type, top location categories, visit counts, and most-visited places
+
+### Contact Matching
+- **Contact sync** — syncs device contacts to identify friends already on Nava
+- **Privacy controls** — configurable visibility for contact discovery, music taste sharing, and fitness data sharing
 
 ### Reels
 - **Short-form video reels** for profile expression
@@ -31,6 +71,8 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 - **7 video filters** (Original, Vivid, Warm, Cool, Vintage, Drama, Fade) with real-time CIFilter preview thumbnails
 - **AVVideoComposition-based** per-frame filter export with progress tracking
 - **Live upload preview** — tapping the thumbnail plays the filtered video alongside the music preview clip simultaneously before posting
+- **Cellular upload warning** — prompts confirmation before uploading on metered connections (cellular/hotspot)
+- **HLS processing state** — shows "Processing..." overlay with spinner for reels still being transcoded server-side
 - **Private messaging** on reels (Instagram-style DM via reel)
 - **Reel inbox** with conversation threads and unread count badge
 - **Reel message composer** with reply context
@@ -39,6 +81,9 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 - **Global/Local feed scope** toggle for location-scoped reel discovery
 - **Floating upload progress pill** showing pipeline status across all tabs
 - **Draggable tab bar overlay** — swipe up/down to reveal/hide the tab bar within full-screen reel experience
+- **Disk space check** — skips video caching when device storage is below 100MB
+- **Upload retry** — failed reel uploads can be retried without re-compressing or re-filtering
+- **LRU video cache** — caches 3 most recent reel videos for offline playback
 
 ### Chat & Communication
 - **Real-time WebSocket chat** with typing indicators and read receipts
@@ -85,6 +130,10 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 - **My Reels player** — full-screen paging reel player for the user's own uploads, launched from the profile grid
 - **Reel engagement stats** — aggregate Likes / Views / Messages displayed on profile
 - **Reel activity section** — latest 5 activity items (who liked/viewed/messaged) with "See All" link to full activity feed
+- **Explorer profile** — search analytics and location category breakdown
+- **Fitness detail** — HealthKit stats, Strava connection, workout history, goals, leaderboard
+- **Music taste** — genre and artist breakdown with Spotify integration and compatibility scores
+- **Contacts on Nava** — see which phone contacts are on the platform
 - Preference management (age range, distance, interests)
 - **Invite friends** sharing flow
 - Notification preferences
@@ -100,16 +149,26 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 
 ### Infrastructure
 - **Deep linking** support for navigating to profiles, matches, reels, and reel message threads
-- **Network monitoring** with connectivity status
+- **Network monitoring** with connectivity status and metered connection detection (`isExpensive`)
 - **Network metrics** tracking for API performance with circuit breaker and periodic flush (5-minute interval)
+- **HTTP error handling** — 401 interceptor for session expiry, 403 forbidden detection, 5xx service unavailable with retry classification (`isRetryable`)
 - **Push notification** management with actionable categories, inline reply, deep link prefetch, and background fetch
 - **Notification Service Extension** for rich media push notifications
 - **Local caching** with AES-GCM encryption for offline data persistence (including reel activity fallback)
+- **Profile cache** — profile data cached on disk with TTL, loads instantly before network refresh
+- **Discover cache** — cache-first loading for discover feed with background refresh
+- **Matches cache** — cached match list for instant display on launch
+- **Offline action queue** — swipes/likes/passes persisted to disk when offline, auto-flushed on reconnection (24-hour expiry)
+- **Upload retry** — failed reel uploads can be retried without re-processing
+- **Disk space awareness** — video caching skipped below 100MB free space
 - **Audio session management** with Bluetooth routing for calls, reels, and media
 - **Structured logging** via `NavLog` with categories
 - **HEIF/WebP/DNG/RAW image decoding** support via CIImage fallback
 - **Graceful task cancellation** — SwiftUI `.task` cancellations handled without disrupting auth state
-- **Upload retry** — failed reel uploads can be retried without re-compressing or re-filtering
+- **Rate limiting** — swipe rate limiting to prevent abuse
+- **Memory pressure handling** — responds to low memory warnings
+- **Null island filtering** — rejects location coordinates at (0, 0)
+- **Logout cleanup** — clears all caches, tokens, and local state on sign out
 
 ## Architecture
 
@@ -121,6 +180,7 @@ nava/
 │   ├── navaApp.swift                  # App entry point, environment injection
 │   ├── Assets.xcassets                # Asset catalog
 │   ├── Products.storekit              # StoreKit testing configuration
+│   ├── Info.plist                     # App configuration
 │   └── PrivacyInfo.xcprivacy          # Privacy manifest
 │
 ├── NotificationServiceExtension/
@@ -140,7 +200,15 @@ nava/
 │   │       │   ├── AIInsightsModels.swift     # AI insights response models
 │   │       │   ├── VerificationModels.swift   # Verification status/type models
 │   │       │   ├── StoreProductID.swift       # IAP product identifiers
-│   │       │   └── ModerationStatus.swift     # Content moderation states
+│   │       │   ├── ModerationStatus.swift     # Content moderation states
+│   │       │   ├── ContactMatchingModels.swift # Contact sync and privacy models
+│   │       │   ├── FLModels.swift             # Federated learning round/update models
+│   │       │   ├── FitnessModels.swift        # Fitness stats, workouts, goals, leaderboard
+│   │       │   ├── MapSearchModels.swift       # Map search, trending, explorer profile
+│   │       │   ├── MusicTasteModels.swift      # Music taste sync, compatibility
+│   │       │   ├── OutdoorModels.swift         # Outdoor spots, visits, seasonal guides
+│   │       │   ├── SocialModels.swift          # Spots, playgrounds, events
+│   │       │   └── StravaModels.swift          # Strava auth, activities, routes
 │   │       ├── Theme/
 │   │       │   └── AppTheme.swift             # Colors, typography, spacing tokens
 │   │       ├── UI/
@@ -151,34 +219,43 @@ nava/
 │   │       │   ├── Array+Safe.swift           # Safe array subscript
 │   │       │   └── ImageDecoding.swift        # Image decoding, face detection, face matching
 │   │       ├── DeepLink.swift                 # Deep link routing (profiles, matches, reels, reel messages)
-│   │       ├── LocalCache.swift               # Disk-based caching
+│   │       ├── LocalCache.swift               # Disk-based caching with AES-GCM encryption
 │   │       └── Logger.swift                   # Structured logging (NavLog)
 │   │
 │   ├── NavNetworking/                 # API client layer
 │   │   └── Sources/NavNetworking/
-│   │       ├── APIService.swift               # REST + GraphQL client with retry
+│   │       ├── APIService.swift               # REST + GraphQL client with retry, 401/403/5xx handling
 │   │       └── AppConfig.swift                # Environment switching (dev/prod)
 │   │
 │   ├── NavServices/                   # Business logic services
 │   │   └── Sources/NavServices/
-│   │       ├── AuthManager.swift              # OTP auth, JWT tokens, keychain
+│   │       ├── AuthManager.swift              # OTP auth, JWT tokens, keychain, profile caching
 │   │       ├── StoreKitManager.swift          # StoreKit 2 IAP management
 │   │       ├── ChatWebSocket.swift            # WebSocket client for real-time chat + presence
 │   │       ├── CallManager.swift              # WebRTC call signaling
 │   │       ├── LocationManager.swift          # CoreLocation + backend sync
-│   │       ├── NetworkMonitor.swift           # NWPathMonitor connectivity
+│   │       ├── NetworkMonitor.swift           # NWPathMonitor connectivity + metered detection
 │   │       ├── NetworkMetrics.swift           # API latency/error tracking with periodic flush
 │   │       ├── PushNotificationManager.swift  # APNs registration, categories, inline reply, prefetch
 │   │       ├── NotificationOutcome.swift      # Notification action results
 │   │       ├── AudioSessionManager.swift      # Audio session + Bluetooth routing
-│   │       ├── ReelUploadService.swift        # 8-phase parallel pipeline (compress → filter → mix audio → upload)
-│   │       └── VideoFilter.swift              # 7-filter enum with CIFilter + AVVideoComposition export
+│   │       ├── ReelUploadService.swift        # 8-phase pipeline (compress → filter → mix → upload) with retry
+│   │       ├── VideoFilter.swift              # 7-filter enum with CIFilter + AVVideoComposition export
+│   │       ├── ContactMatchingService.swift   # Device contact sync and matching
+│   │       ├── FederatedLearningService.swift # On-device FL training with weight delta upload
+│   │       ├── FitnessService.swift           # HealthKit + Strava fitness tracking
+│   │       ├── MapSearchService.swift         # Map search tracking and explorer profile
+│   │       ├── MusicTasteSyncService.swift    # Apple Music + Spotify dual-source sync
+│   │       ├── OfflineActionQueue.swift       # Offline swipe queue with auto-flush
+│   │       ├── OutdoorService.swift           # Outdoor spots CRUD and visit logging
+│   │       ├── SpotifyAuthManager.swift       # Spotify OAuth PKCE flow
+│   │       └── StravaAuthManager.swift        # Strava OAuth flow
 │   │
 │   └── NavFeatures/                   # All UI views
 │       └── Sources/NavFeatures/
 │           ├── MainTabView.swift              # Root tab navigation + upload pill overlay + prefetch indicator
 │           ├── Discover/
-│           │   ├── DiscoverView.swift         # Swipe card stack + super like
+│           │   ├── DiscoverView.swift         # Swipe card stack + super like + pagination
 │           │   └── SentLikesView.swift        # Sent likes with super like sections
 │           ├── Search/
 │           │   ├── StudentSearchView.swift    # Grouped university results + autocomplete
@@ -193,13 +270,26 @@ nava/
 │           │   ├── CallView.swift             # Voice/video call UI
 │           │   └── MatchProfileDetailView.swift  # Interleaved profile detail from match/discover
 │           ├── Reels/
-│           │   ├── ReelsView.swift            # Vertical reel feed + upload flow + filter carousel + music
+│           │   ├── ReelsView.swift            # Vertical reel feed + upload flow + filter carousel + music + cellular warning
 │           │   ├── ReelConversationView.swift # Reel DM thread
 │           │   ├── ReelInboxView.swift        # Reel message inbox
 │           │   ├── ReelMessageComposer.swift  # Reel message input
 │           │   ├── ReelActivityListView.swift # Filterable reel activity feed (likes, views, messages)
 │           │   ├── MusicSearchView.swift      # Apple Music catalog search + 30-sec preview
 │           │   └── VideoTrimmerView.swift     # Frame strip timeline trimmer with 30-sec limit
+│           ├── Social/
+│           │   ├── SocialHubView.swift        # Social feed: spots, playgrounds, events
+│           │   ├── CreateSpotView.swift       # Create location-based spot
+│           │   ├── CreatePlaygroundView.swift # Create group activity
+│           │   ├── CreateEventView.swift      # Create event with date/location
+│           │   ├── SpotDetailView.swift       # Spot detail with reactions
+│           │   ├── PlaygroundDetailView.swift # Playground detail with members
+│           │   ├── EventDetailView.swift      # Event detail with RSVP
+│           │   └── SocialLocationSearchSheet.swift  # Map-based location picker
+│           ├── Outdoor/
+│           │   ├── OutdoorView.swift          # Browse outdoor spots by category + seasonal guide
+│           │   ├── OutdoorSpotDetailView.swift # Spot detail with weather, visits, memories
+│           │   └── AddSpotView.swift          # Add new outdoor spot
 │           ├── Premium/
 │           │   └── PremiumView.swift          # Subscription UI
 │           ├── Onboarding/
@@ -217,7 +307,11 @@ nava/
 │           │   ├── NotificationPreferencesView.swift  # Push notification settings
 │           │   └── SafetyAppealView.swift     # Appeal moderation decisions
 │           ├── Profile/
-│           │   └── ProfileView.swift          # User profile + My Reels tab + engagement stats + activity
+│           │   ├── ProfileView.swift          # User profile + My Reels tab + engagement stats + activity
+│           │   ├── ExplorerProfileView.swift  # Explorer analytics and location categories
+│           │   ├── FitnessDetailView.swift    # HealthKit stats, Strava, workouts, goals, leaderboard
+│           │   ├── MusicTasteView.swift       # Genre/artist breakdown + Spotify + compatibility
+│           │   └── ContactsOnNavaView.swift   # Contacts already on Nava
 │           ├── Verification/
 │           │   ├── SelfieVerificationView.swift      # Selfie check + face matching vs profile photos
 │           │   ├── SelfieCameraView.swift             # Live AVCaptureSession front-camera capture
@@ -258,20 +352,22 @@ NotificationServiceExtension  (rich push — standalone extension target)
 | UI Framework | SwiftUI |
 | Architecture | SPM modular packages (NavCore → NavNetworking → NavServices → NavFeatures) |
 | State Management | `@StateObject`, `@EnvironmentObject`, `ObservableObject` |
-| Networking | `URLSession` with retry, GraphQL, REST |
+| Networking | `URLSession` with retry, GraphQL, REST, 401/403/5xx error classification |
 | Real-time | `URLSessionWebSocketTask` (native WebSocket) with presence tracking |
 | Payments | StoreKit 2 (`Product`, `Transaction`, `AppStore.sync()`) |
-| Auth | OTP via phone number, JWT tokens, Keychain storage |
+| Auth | OTP via phone number, JWT tokens, Keychain storage, Spotify/Strava OAuth PKCE |
 | Location | CoreLocation with backend sync |
 | Media | `AVPlayer` for reels, `AVAssetExportSession` + `AVVideoComposition` for video filters, `AVMutableComposition` for audio mixing, `AsyncImage` for photos |
-| Music | MusicKit (`MusicCatalogSearchRequest`) for Apple Music search and preview |
+| Music | MusicKit (`MusicCatalogSearchRequest`) for Apple Music, Spotify Web API for Spotify |
 | Video Editing | `AVAssetImageGenerator` for frame strip thumbnails, `AVAssetExportSession` for trim export (up to 4K) |
 | Image Processing | CoreImage (`CIFilter`) for real-time video filters |
 | Camera | `AVCaptureSession` + `AVCapturePhotoOutput` for in-app selfie capture |
 | Face Detection | Vision framework (`VNDetectFaceRectanglesRequest`, `VNGenerateImageFeaturePrintRequest`) |
+| Health & Fitness | HealthKit for workout/calorie/active-minute data |
 | Push Notifications | `UNUserNotificationCenter` with actionable categories, `UNNotificationServiceExtension` for rich media |
 | Encryption | CryptoKit (AES-GCM) for local cache |
-| Connectivity | `NWPathMonitor` for network status |
+| Connectivity | `NWPathMonitor` for network status + metered connection detection |
+| Machine Learning | On-device federated learning with weight delta aggregation |
 
 ## Backend
 
@@ -280,8 +376,9 @@ This app connects to a [Rust/Axum backend](https://github.com/rohitkarumanchi745
 - PostgreSQL + Neo4j (dual-write) + Redis
 - Payment processing (Apple StoreKit, Razorpay, Stripe)
 - ArcFace ONNX model for server-side face verification
-- Federated learning for privacy-preserving recommendations
+- Federated learning aggregation for privacy-preserving recommendations
 - LLM-based content labeling pipeline
+- HLS video transcoding pipeline
 
 ## Setup
 
@@ -302,6 +399,10 @@ This app connects to a [Rust/Axum backend](https://github.com/rohitkarumanchi745
 
 Configure in `Packages/NavNetworking/Sources/NavNetworking/AppConfig.swift`.
 
+### Optional Integrations
+- **Spotify**: Register an app at [Spotify Developer Dashboard](https://developer.spotify.com/dashboard), add `nava://spotify-callback` as redirect URI, and replace `YOUR_SPOTIFY_CLIENT_ID` in `SpotifyAuthManager.swift`
+- **Strava**: Register an app at [Strava API](https://www.strava.com/settings/api), add `nava://strava-callback` as redirect URI, and replace `YOUR_STRAVA_CLIENT_ID` in `StravaAuthManager.swift`
+
 ## API Endpoints Used
 
 | Feature | Endpoint | Method |
@@ -320,6 +421,15 @@ Configure in `Packages/NavNetworking/Sources/NavNetworking/AppConfig.swift`.
 | Reel Activity | `/reels/activity?limit=50` | GET |
 | Reel Inbox | `/reels/inbox?limit=...&unread_only=true` | GET |
 | Reel Interactions | `/reels/:reelId/like-creator` | POST |
+| Music Sync | `/music/sync` | POST |
+| Music Compatibility | `/music/compatibility/:id` | GET |
+| Fitness Sync | `/fitness/sync` | POST |
+| Fitness Stats | `/fitness/stats`, `/fitness/workouts`, `/fitness/goals`, `/fitness/leaderboard` | GET, POST |
+| Outdoor Spots | `/outdoor/spots`, `/outdoor/visit`, `/outdoor/memories`, `/outdoor/seasonal-guide` | GET, POST |
+| Social | `/social/spots`, `/social/playgrounds`, `/social/events` | GET, POST |
+| Contact Sync | `/contacts/sync` | POST |
+| Federated Learning | `/fl/register`, `/fl/round`, `/fl/update` | GET, POST |
+| Map Search | `/map/search`, `/map/trending`, `/map/interests` | GET, POST |
 | Payments | `/api/payments/verify-apple` | POST |
 | Location | `/location/update` | POST |
 | Verification | `/verify/selfie`, `/student/verify`, `/student/verify-id` | POST |

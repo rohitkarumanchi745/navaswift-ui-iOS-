@@ -15,13 +15,12 @@ public struct AppConfig {
     private init() {
         #if DEBUG
         environment = .development
-        apiBaseURL = "http://192.168.1.103:8080"
-        wsBaseURL = "ws://192.168.1.103:8080"
+        apiBaseURL = "https://nava-production-cb66.up.railway.app"
+        wsBaseURL = "wss://nava-production-cb66.up.railway.app"
         #else
         environment = .production
-        // Replace with your production server URL before App Store submission
-        apiBaseURL = "https://api.nava.app"
-        wsBaseURL = "wss://api.nava.app"
+        apiBaseURL = "https://nava-production-cb66.up.railway.app"
+        wsBaseURL = "wss://nava-production-cb66.up.railway.app"
         #endif
     }
 
@@ -44,6 +43,7 @@ public struct AppConfig {
             return URL(string: path)
         }
         let base = shared.apiBaseURL
-        return URL(string: "\(base)\(path)")
+        let separator = path.hasPrefix("/") ? "" : "/"
+        return URL(string: "\(base)\(separator)\(path)")
     }
 }

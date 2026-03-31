@@ -1,4 +1,5 @@
 import SwiftUI
+import BackgroundTasks
 import NavCore
 import NavNetworking
 import NavServices
@@ -21,6 +22,18 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
         pushManager?.didFailToRegisterForRemoteNotifications(error: error)
+    }
+
+    /// Reconnect the background URL session when the system relaunches the app
+    /// to deliver upload completion events.
+    func application(
+        _ application: UIApplication,
+        handleEventsForBackgroundURLSession identifier: String,
+        completionHandler: @escaping () -> Void
+    ) {
+        Task { @MainActor in
+            ReelUploadService.shared.handleBackgroundSessionEvents(completionHandler: completionHandler)
+        }
     }
 
     /// Handle silent push / background fetch for prewarming badge counts and feeds.
@@ -61,9 +74,20 @@ struct navaApp: App {
     @StateObject private var pushManager = PushNotificationManager()
     @StateObject private var networkMonitor = NetworkMonitor()
     @StateObject private var reelUploadService = ReelUploadService()
+    @StateObject private var flService = FederatedLearningService()
+    @StateObject private var musicTasteService = MusicTasteSyncService()
+    @StateObject private var contactMatchingService = ContactMatchingService()
+    @StateObject private var fitnessService = FitnessService()
+    @StateObject private var spotifyAuth = SpotifyAuthManager()
+    @StateObject private var stravaAuth = StravaAuthManager()
+    @StateObject private var outdoorService = OutdoorService()
+    @StateObject private var mapSearchService = MapSearchService()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        // Register FL background training task — must happen before app finishes launching
+        FederatedLearningService.registerBackgroundTaskHandler()
+
         // Wire APIService metrics into NetworkMetrics
         APIService.shared.onMetric = { metric in
             Task { @MainActor in
@@ -89,22 +113,62 @@ struct navaApp: App {
                 .environmentObject(pushManager)
                 .environmentObject(networkMonitor)
                 .environmentObject(reelUploadService)
+                .environmentObject(flService)
+                .environmentObject(musicTasteService)
+                .environmentObject(contactMatchingService)
+                .environmentObject(fitnessService)
+                .environmentObject(spotifyAuth)
+                .environmentObject(stravaAuth)
+                .environmentObject(outdoorService)
+                .environmentObject(mapSearchService)
                 .task {
+                    // Wire 401 interceptor — refresh token and retry on unauthorized
+                    APIService.shared.onUnauthorized = { [weak authManager] in
+                        guard let authManager else { return false }
+                        return await authManager.refreshAccessToken()
+                    }
                     // Connect AppDelegate to PushNotificationManager
                     appDelegate.pushManager = pushManager
-                    // Wire logout to unregister push token and clear badge
-                    authManager.onLogout = { [weak pushManager] in
+                    // Wire logout to unregister push token, clear badge, and reset sync timestamps
+                    authManager.onLogout = { [weak pushManager, weak spotifyAuth, weak stravaAuth, weak reelUploadService] in
                         pushManager?.unregisterToken()
                         pushManager?.clearBadge()
+                        spotifyAuth?.disconnect()
+                        stravaAuth?.disconnect()
+                        reelUploadService?.dismiss()
+                        ReelVideoCache.shared.clearAll()
+                        OfflineActionQueue.shared.clearAll()
+                        UserDefaults.standard.removeObject(forKey: "music_taste_last_sync")
+                        UserDefaults.standard.removeObject(forKey: "contacts_last_sync")
+                        UserDefaults.standard.removeObject(forKey: "fitness_last_sync")
+                        UserDefaults.standard.removeObject(forKey: "healthkit_auth_granted")
                     }
                     // Configure audio session for Bluetooth routing (calls, reels, media)
                     AudioSessionManager.shared.configure()
                     // Start periodic telemetry flush (every 5 minutes)
                     NetworkMetrics.shared.startPeriodicFlush()
+                    // Register FL device and schedule background training
+                    await flService.registerDevice()
+                    flService.scheduleBackgroundTraining()
+                    // Wire Spotify into music taste service and sync (throttled to 24h)
+                    musicTasteService.setSpotifyAuth(spotifyAuth)
+                    await musicTasteService.syncIfNeeded()
+                    await contactMatchingService.syncIfNeeded()
+                    // Wire Strava into fitness service and auto-request HealthKit + sync
+                    fitnessService.setStravaAuth(stravaAuth)
+                    await fitnessService.requestAuthorizationAndSync()
+                    // Fetch explorer interests for profile badge
+                    await mapSearchService.fetchExplorerInterests()
+                    // Wire offline action queue to auto-flush when connectivity is restored
+                    OfflineActionQueue.shared.observeNetwork(networkMonitor)
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     if newPhase == .active {
                         pushManager.clearBadge()
+                        // Flush any pending offline actions when app becomes active
+                        Task { await OfflineActionQueue.shared.flush() }
+                    } else if newPhase == .background {
+                        flService.scheduleBackgroundTraining()
                     }
                 }
                 .onChange(of: networkMonitor.isConnected) { _, connected in

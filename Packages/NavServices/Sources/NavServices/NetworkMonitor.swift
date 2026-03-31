@@ -8,6 +8,8 @@ import NavCore
 public class NetworkMonitor: ObservableObject {
     @Published public var isConnected = true
     @Published public var connectionType: ConnectionType = .unknown
+    /// True when the connection is metered (e.g. cellular or personal hotspot).
+    @Published public var isExpensive = false
 
     public enum ConnectionType: String {
         case wifi, cellular, wired, unknown
@@ -30,6 +32,7 @@ public class NetworkMonitor: ObservableObject {
                 guard let self else { return }
                 let wasConnected = self.isConnected
                 self.isConnected = path.status == .satisfied
+                self.isExpensive = path.isExpensive
 
                 if path.usesInterfaceType(.wifi) {
                     self.connectionType = .wifi

@@ -288,7 +288,7 @@ struct MusicSearchView: View {
 
 extension Song: @retroactive Identifiable {}
 
-// MARK: - Music Start Offset Sheet
+// MARK: - Music Start Offset Sheet (Instagram-style scrollable waveform trim)
 
 private struct MusicStartOffsetSheet: View {
     let song: Song
@@ -296,10 +296,39 @@ private struct MusicStartOffsetSheet: View {
     let onConfirm: () -> Void
     let onPreviewAt: (Double) -> Void
 
-    private var maxStartSeconds: Double {
-        guard let duration = song.duration else { return 30 }
-        return max(0, duration - 5) // leave at least 5s of audio
+    /// Duration of the selected clip (max 30s to match reel limit).
+    private let clipDuration: Double = 30.0
+
+    /// The actual duration of the preview clip (loaded async on appear).
+    /// Apple Music previews are typically ~30 seconds — the trim UI must be
+    /// limited to this range since we only have the preview, not the full song.
+    @State private var previewDuration: Double?
+
+    /// Effective duration used for the waveform — preview clip duration once
+    /// loaded, otherwise falls back to the full song duration.
+    private var effectiveDuration: Double {
+        previewDuration ?? (song.duration ?? 30)
     }
+
+    /// How far the start offset can go before the clip would exceed the available audio.
+    private var maxStartSeconds: Double {
+        max(0, effectiveDuration - clipDuration)
+    }
+
+    /// Number of bars in the waveform strip (1 bar per ~0.5s).
+    private var barCount: Int { max(1, Int(effectiveDuration * 2)) }
+
+    /// Points per second — controls how wide the waveform strip is.
+    private let ptsPerSecond: CGFloat = 8
+
+    /// Total width of the scrollable waveform in points.
+    private var totalWidth: CGFloat { CGFloat(effectiveDuration) * ptsPerSecond }
+
+    /// Width of the highlighted selection window.
+    private var windowWidth: CGFloat { CGFloat(min(clipDuration, effectiveDuration)) * ptsPerSecond }
+
+    @State private var isPreviewing = false
+    @State private var dragBase: Double?
 
     var body: some View {
         VStack(spacing: 20) {
@@ -331,39 +360,106 @@ private struct MusicStartOffsetSheet: View {
                 Spacer()
             }
 
-            // Start offset slider
-            VStack(spacing: 8) {
-                Text("Start at")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(.white.opacity(0.5))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                HStack(spacing: 12) {
+            // Trim section
+            VStack(spacing: 10) {
+                // Time labels
+                HStack {
                     Text(formatTime(startSeconds))
-                        .font(.system(size: 14, weight: .medium, design: .monospaced))
+                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
                         .foregroundColor(AppColors.purpleAccent)
-                        .frame(width: 50, alignment: .leading)
-
-                    Slider(value: $startSeconds, in: 0...maxStartSeconds, step: 0.5)
-                        .tint(AppColors.purpleAccent)
-
-                    if let duration = song.duration {
-                        Text(formatTime(duration))
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.4))
-                            .frame(width: 50, alignment: .trailing)
-                    }
+                    Spacer()
+                    let endTime = min(startSeconds + clipDuration, effectiveDuration)
+                    Text(formatTime(endTime))
+                        .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                        .foregroundColor(AppColors.purpleAccent)
                 }
 
-                // Preview from offset button
+                // Scrollable waveform with selection window
+                GeometryReader { geo in
+                    let containerWidth = geo.size.width
+                    // The strip scrolls behind a fixed selection window centered in the container
+                    let fixedWindowX = (containerWidth - windowWidth) / 2
+                    // Clamp so the strip doesn't scroll past its boundaries
+                    let maxOffset = totalWidth - windowWidth
+                    let currentOffset = maxStartSeconds > 0
+                        ? CGFloat(startSeconds / maxStartSeconds) * maxOffset
+                        : 0
+                    let stripX = fixedWindowX - currentOffset
+
+                    ZStack(alignment: .leading) {
+                        // Dimmed waveform bars (full song)
+                        waveformBars(opacity: 0.15)
+                            .frame(width: totalWidth, height: 48)
+                            .offset(x: stripX)
+
+                        // Highlighted waveform bars (selection window only via mask)
+                        waveformBars(opacity: 1.0)
+                            .frame(width: totalWidth, height: 48)
+                            .offset(x: stripX)
+                            .mask {
+                                Rectangle()
+                                    .frame(width: windowWidth, height: 48)
+                                    .offset(x: fixedWindowX)
+                                    .frame(width: containerWidth, alignment: .leading)
+                            }
+
+                        // Selection window border
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(AppColors.purpleAccent, lineWidth: 2)
+                            .frame(width: windowWidth, height: 52)
+                            .offset(x: fixedWindowX)
+
+                        // Left/Right handles
+                        handleGrip()
+                            .offset(x: fixedWindowX - 2)
+                        handleGrip()
+                            .offset(x: fixedWindowX + windowWidth - 4)
+                    }
+                    .frame(width: containerWidth, height: 52)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 4)
+                            .onChanged { value in
+                                // Capture the start position on first drag callback
+                                if dragBase == nil { dragBase = startSeconds }
+                                // Map pixel translation to seconds
+                                let ptsPerSec = totalWidth / CGFloat(effectiveDuration)
+                                let delta = -Double(value.translation.width) / Double(ptsPerSec)
+                                let newStart = min(maxStartSeconds, max(0, (dragBase ?? 0) + delta))
+                                startSeconds = (newStart * 2).rounded() / 2 // snap to 0.5s
+                            }
+                            .onEnded { _ in
+                                dragBase = nil
+                                // Auto-preview the selected section after scrub
+                                if song.previewAssets?.first?.url != nil {
+                                    onPreviewAt(startSeconds)
+                                    isPreviewing = true
+                                }
+                            }
+                    )
+                }
+                .frame(height: 52)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                // Hint text
+                HStack(spacing: 4) {
+                    Image(systemName: "hand.draw")
+                        .font(.system(size: 11))
+                    Text("Drag to select which part to use (\(Int(min(clipDuration, effectiveDuration)))s)")
+                        .font(.system(size: 12))
+                }
+                .foregroundColor(.white.opacity(0.4))
+
+                // Preview button
                 if song.previewAssets?.first?.url != nil {
                     Button {
                         onPreviewAt(startSeconds)
+                        isPreviewing.toggle()
                     } label: {
                         HStack(spacing: 6) {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 11))
-                            Text("Preview from \(formatTime(startSeconds))")
+                            Image(systemName: isPreviewing ? "pause.fill" : "play.fill")
+                                .font(.system(size: 12))
+                            Text(isPreviewing ? "Pause" : "Preview from \(formatTime(startSeconds))")
                                 .font(.system(size: 13, weight: .medium))
                         }
                         .foregroundColor(AppColors.purpleAccent)
@@ -387,7 +483,53 @@ private struct MusicStartOffsetSheet: View {
             }
         }
         .padding(20)
+        .task {
+            // Load the actual preview clip duration so the trim range matches
+            // what's available (Apple Music previews are typically ~30 seconds).
+            guard let url = song.previewAssets?.first?.url else { return }
+            let asset = AVURLAsset(url: url)
+            if let duration = try? await asset.load(.duration) {
+                let seconds = CMTimeGetSeconds(duration)
+                if seconds > 0 {
+                    previewDuration = seconds
+                    // Clamp the current selection if it exceeds the preview range
+                    if startSeconds > max(0, seconds - clipDuration) {
+                        startSeconds = max(0, seconds - clipDuration)
+                    }
+                }
+            }
+        }
     }
+
+    // MARK: - Waveform Bars
+
+    /// Generates pseudo-random waveform bars based on bar index (deterministic).
+    @ViewBuilder
+    private func waveformBars(opacity: Double) -> some View {
+        HStack(spacing: 1.5) {
+            ForEach(0..<barCount, id: \.self) { i in
+                // Deterministic pseudo-random height based on index
+                let seed = sin(Double(i) * 0.7 + 1.3) * 43758.5453
+                let normalised = abs(seed - seed.rounded(.down))
+                let height = 6 + normalised * 42 // 6–48 pts
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(AppColors.purpleAccent.opacity(opacity))
+                    .frame(width: 2, height: CGFloat(height))
+            }
+        }
+        .frame(height: 48, alignment: .center)
+    }
+
+    // MARK: - Handle Grip
+
+    @ViewBuilder
+    private func handleGrip() -> some View {
+        RoundedRectangle(cornerRadius: 1)
+            .fill(AppColors.purpleAccent)
+            .frame(width: 6, height: 52)
+    }
+
+    // MARK: - Helpers
 
     private func formatTime(_ seconds: Double) -> String {
         let s = Int(seconds)

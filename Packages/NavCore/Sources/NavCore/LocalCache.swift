@@ -129,6 +129,29 @@ public final class LocalCache {
     public func clearAll() {
         try? FileManager.default.removeItem(at: cacheDir)
         try? FileManager.default.createDirectory(at: cacheDir, withIntermediateDirectories: true)
+        try? FileManager.default.removeItem(at: thumbnailDir)
+        try? FileManager.default.createDirectory(at: thumbnailDir, withIntermediateDirectories: true)
+    }
+
+    // MARK: - Thumbnail Cache
+
+    private var thumbnailDir: URL {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        let dir = base.appendingPathComponent("nava_thumbnails", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// Saves a JPEG thumbnail for a given reel ID.
+    public func saveThumbnail(_ imageData: Data, forReelId reelId: String) {
+        let file = thumbnailDir.appendingPathComponent("\(reelId).jpg")
+        try? imageData.write(to: file, options: [.atomicWrite])
+    }
+
+    /// Loads a cached JPEG thumbnail for a given reel ID.
+    public func loadThumbnail(forReelId reelId: String) -> Data? {
+        let file = thumbnailDir.appendingPathComponent("\(reelId).jpg")
+        return try? Data(contentsOf: file)
     }
 
     // MARK: - Eviction
@@ -195,6 +218,25 @@ public extension LocalCache {
         case matches = "matches"
         case reelInbox = "reel_inbox"
         case reelActivity = "reel_activity"
+        case myReels = "my_reels"
+        case flTrainingSamples = "fl_training_samples"
+        case flWeights = "fl_weights"
+        case spotsFeed = "spots_feed"
+        case playgrounds = "playgrounds"
+        case nearbyEvents = "nearby_events"
+        case musicTaste = "music_taste"
+        case contactFriends = "contact_friends"
+        case privacySettings = "privacy_settings"
+        case fitnessStats = "fitness_stats"
+        case fitnessWorkouts = "fitness_workouts"
+        case fitnessLeaderboard = "fitness_leaderboard"
+        case fitnessGoals = "fitness_goals"
+        case outdoorSpots = "outdoor_spots"
+        case outdoorMemories = "outdoor_memories"
+        case seasonalGuide = "seasonal_guide"
+        case userProfile = "user_profile"
+        case offlineActions = "offline_actions"
+        case sentLikes = "sent_likes"
     }
 }
 

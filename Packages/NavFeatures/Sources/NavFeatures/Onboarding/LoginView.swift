@@ -7,7 +7,7 @@ import NavServices
 struct LoginView: View {
     @EnvironmentObject var auth: AuthManager
     @State private var rawPhone = ""
-    @State private var selectedCountry = Country.all.first(where: { $0.code == "IN" }) ?? Country.all[0]
+    @State private var selectedCountry = Country.deviceDefault
     @State private var showCountryPicker = false
     @State private var countrySearch = ""
     @State private var countdown = 0

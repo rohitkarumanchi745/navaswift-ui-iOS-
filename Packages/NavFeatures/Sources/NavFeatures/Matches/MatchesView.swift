@@ -408,6 +408,11 @@ struct MatchesView: View {
     // MARK: - Fetch Likes (who liked you)
 
     private func fetchLikes() async {
+        // Layer 1: Show cached matches instantly
+        if likedProfiles.isEmpty,
+           let cached = LocalCache.shared.load([LikedProfile].self, forKey: .matches, maxAge: 3600) {
+            likedProfiles = cached
+        }
         isLoading = likedProfiles.isEmpty
         errorMessage = nil
         do {
@@ -444,12 +449,19 @@ struct MatchesView: View {
                     )
                 }
                 likedProfiles = fetched
+                // Cache for offline access
+                LocalCache.shared.save(fetched, forKey: .matches)
             } else {
                 likedProfiles = []
             }
         } catch {
             if likedProfiles.isEmpty {
-                likedProfiles = []
+                // Fallback to stale cache when offline
+                if let cached = LocalCache.shared.loadStale([LikedProfile].self, forKey: .matches) {
+                    likedProfiles = cached
+                } else {
+                    likedProfiles = []
+                }
             }
         }
         isLoading = false
@@ -458,6 +470,11 @@ struct MatchesView: View {
     // MARK: - Fetch Sent Likes (you liked)
 
     private func fetchSentLikes() async {
+        // Layer 1: Show cached sent likes instantly
+        if sentLikes.isEmpty,
+           let cached = LocalCache.shared.load([SentLikeProfile].self, forKey: .sentLikes, maxAge: 3600) {
+            sentLikes = cached
+        }
         isSentLoading = sentLikes.isEmpty
         do {
             let query = """
@@ -482,12 +499,19 @@ struct MatchesView: View {
                     )
                 }
                 sentLikes = fetched
+                // Cache for offline access
+                LocalCache.shared.save(fetched, forKey: .sentLikes)
             } else {
                 sentLikes = []
             }
         } catch {
             if sentLikes.isEmpty {
-                sentLikes = []
+                // Fallback to stale cache when offline
+                if let cached = LocalCache.shared.loadStale([SentLikeProfile].self, forKey: .sentLikes) {
+                    sentLikes = cached
+                } else {
+                    sentLikes = []
+                }
             }
         }
         isSentLoading = false
