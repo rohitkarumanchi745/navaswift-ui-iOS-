@@ -1,9 +1,11 @@
 import SwiftUI
 import NavCore
 import NavNetworking
+import NavServices
 
 struct ReelInboxView: View {
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var adManager: AdManager
     @State private var messages: [ReelInboxItem] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -99,6 +101,9 @@ struct ReelInboxView: View {
                 }
             }
             .padding(.top, 8)
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            BannerAdView(placementId: AdManager.PlacementID.inboxBanner)
         }
         .background(AppColors.darkBg.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)

@@ -233,7 +233,23 @@ struct ChatView: View {
         }
         .navigationBarHidden(true)
         .task {
+            // 1. Load cached messages instantly (no network wait)
+            let cached = MessageCacheService.shared.loadMessages(matchId: match.matchId)
+            if !cached.isEmpty {
+                messages = cached
+                isLoading = false
+            }
+
+            // 2. Merge any pending unsent messages from disk
+            let pending = MessageCacheService.shared.loadPendingMessages(matchId: match.matchId)
+            for p in pending where !messages.contains(where: { $0.id == p.id }) {
+                messages.append(p)
+            }
+
+            // 3. Fetch fresh from network
             await loadMessages()
+
+            // 4. Connect WebSocket
             if let token = auth.token {
                 ws.connect(matchId: match.matchId, token: token, showOnlineStatus: showOnlineStatus)
             }
@@ -255,6 +271,7 @@ struct ChatView: View {
             )
             if !messages.contains(where: { $0.id == msg.id }) {
                 messages.append(msg)
+                MessageCacheService.shared.saveMessages(messages, matchId: match.matchId)
             }
         }
         .fullScreenCover(isPresented: $showCallView) {
@@ -279,18 +296,26 @@ struct ChatView: View {
     }
 
     private func loadMessages(offset: Int = 0) async {
-        if offset == 0 { isLoading = true } else { isLoadingMore = true }
+        if offset == 0 && messages.isEmpty { isLoading = true }
+        if offset > 0 { isLoadingMore = true }
+
+        // Delta sync: if we have cached messages, only fetch new ones
+        let sinceISO = (offset == 0) ? MessageCacheService.shared.latestMessageISO(matchId: match.matchId) : nil
+
         do {
             let query = """
-            query Conversation($matchId: String!, $limit: Int, $offset: Int) {
-                conversation(matchId: $matchId, limit: $limit, offset: $offset) {
+            query Conversation($matchId: String!, $limit: Int, $offset: Int, $since: String) {
+                conversation(matchId: $matchId, limit: $limit, offset: $offset, since: $since) {
                     id matchId senderId receiverId content createdAt
                 }
             }
             """
+            var variables: [String: Any] = ["matchId": match.matchId, "limit": 50, "offset": offset]
+            if let sinceISO { variables["since"] = sinceISO }
+
             let result: [String: Any] = try await APIService.shared.graphQL(
                 query: query,
-                variables: ["matchId": match.matchId, "limit": 50, "offset": offset]
+                variables: variables
             )
             if let msgs = result["conversation"] as? [[String: Any]] {
                 let parsed = msgs.map { m in
@@ -305,15 +330,36 @@ struct ChatView: View {
                     )
                 }
                 if offset == 0 {
-                    messages = parsed
+                    if sinceISO != nil && !parsed.isEmpty {
+                        // Delta: merge new messages into existing cached set
+                        MessageCacheService.shared.mergeMessages(parsed, matchId: match.matchId)
+                        let merged = MessageCacheService.shared.loadMessages(matchId: match.matchId)
+                        let pendingIds = Set(MessageCacheService.shared.loadPendingMessages(matchId: match.matchId).map(\.id))
+                        let pendingMessages = messages.filter { pendingIds.contains($0.id) }
+                        messages = merged + pendingMessages.filter { p in !merged.contains(where: { $0.id == p.id }) }
+                    } else {
+                        // Full fetch (no cache or since returned everything)
+                        let pendingIds = Set(MessageCacheService.shared.loadPendingMessages(matchId: match.matchId).map(\.id))
+                        let pendingMessages = messages.filter { pendingIds.contains($0.id) }
+                        messages = parsed + pendingMessages
+                        MessageCacheService.shared.saveMessages(messages, matchId: match.matchId)
+                    }
                 } else {
                     messages.insert(contentsOf: parsed, at: 0)
+                    MessageCacheService.shared.saveMessages(messages, matchId: match.matchId)
                 }
                 hasMoreMessages = parsed.count >= 50
+                MessageCacheService.shared.setLastFetchTimestamp(Date(), matchId: match.matchId)
             }
         } catch {
             if offset == 0 && messages.isEmpty {
-                hasMoreMessages = false
+                // Fallback to stale cache
+                let cached = MessageCacheService.shared.loadMessages(matchId: match.matchId)
+                if !cached.isEmpty {
+                    messages = cached
+                } else {
+                    hasMoreMessages = false
+                }
             }
         }
         isLoading = false
@@ -342,6 +388,10 @@ struct ChatView: View {
         messages.append(msg)
         draft = ""
         isInputFocused = false
+
+        // Persist to offline queue (survives app termination)
+        MessageCacheService.shared.queuePendingMessage(msg)
+        MessageCacheService.shared.saveMessages(messages, matchId: match.matchId)
 
         // Send via WebSocket for real-time delivery
         if ws.isConnected {
@@ -373,10 +423,13 @@ struct ChatView: View {
                         createdAt: parseISO(sent["createdAt"] as? String) ?? Date(),
                         status: .sent
                     )
+                    MessageCacheService.shared.removePending(id: tempId)
+                    MessageCacheService.shared.saveMessages(messages, matchId: match.matchId)
                 }
             } catch {
+                // Message stays in pending queue for retry on next launch
                 if let idx = messages.firstIndex(where: { $0.id == tempId }) {
-                    messages[idx].status = .sent
+                    messages[idx].status = .sending
                 }
             }
         }

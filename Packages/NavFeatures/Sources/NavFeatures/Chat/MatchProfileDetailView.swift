@@ -13,11 +13,15 @@ struct MatchProfileDetailView: View {
     var initialProfile: DiscoverProfile? = nil
 
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject var adManager: AdManager
     @State private var profile: DiscoverProfile?
     @State private var reels: [Reel] = []
     @State private var isLoading = true
     @State private var showReelFeed = false
     @State private var tappedReelIndex = 0
+
+    /// Tracks profile views across all instances for interstitial frequency.
+    private static var profileViewCounter = 0
 
     private var photos: [String] {
         let p = profile?.photos ?? [matchPhoto]
@@ -63,6 +67,13 @@ struct MatchProfileDetailView: View {
                 await fetchProfile()
             }
             await fetchReels()
+
+            // Track profile views for interstitial ads
+            Self.profileViewCounter += 1
+            if Self.profileViewCounter % 3 == 0 && adManager.shouldShowAd(placementId: AdManager.PlacementID.profileInterstitial) {
+                adManager.recordImpression(placementId: AdManager.PlacementID.profileInterstitial)
+                // When AdMob SDK is integrated, present interstitial ad here
+            }
         }
         .fullScreenCover(isPresented: $showReelFeed) {
             ProfileReelFeedView(

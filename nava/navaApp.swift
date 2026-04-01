@@ -82,6 +82,7 @@ struct navaApp: App {
     @StateObject private var stravaAuth = StravaAuthManager()
     @StateObject private var outdoorService = OutdoorService()
     @StateObject private var mapSearchService = MapSearchService()
+    @StateObject private var adManager = AdManager()
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
@@ -121,6 +122,7 @@ struct navaApp: App {
                 .environmentObject(stravaAuth)
                 .environmentObject(outdoorService)
                 .environmentObject(mapSearchService)
+                .environmentObject(adManager)
                 .task {
                     // Wire 401 interceptor — refresh token and retry on unauthorized
                     APIService.shared.onUnauthorized = { [weak authManager] in
@@ -130,14 +132,16 @@ struct navaApp: App {
                     // Connect AppDelegate to PushNotificationManager
                     appDelegate.pushManager = pushManager
                     // Wire logout to unregister push token, clear badge, and reset sync timestamps
-                    authManager.onLogout = { [weak pushManager, weak spotifyAuth, weak stravaAuth, weak reelUploadService] in
+                    authManager.onLogout = { [weak pushManager, weak spotifyAuth, weak stravaAuth, weak reelUploadService, weak adManager] in
                         pushManager?.unregisterToken()
                         pushManager?.clearBadge()
                         spotifyAuth?.disconnect()
                         stravaAuth?.disconnect()
                         reelUploadService?.dismiss()
+                        adManager?.reset()
                         ReelVideoCache.shared.clearAll()
                         OfflineActionQueue.shared.clearAll()
+                        MessageCacheService.shared.clearAll()
                         UserDefaults.standard.removeObject(forKey: "music_taste_last_sync")
                         UserDefaults.standard.removeObject(forKey: "contacts_last_sync")
                         UserDefaults.standard.removeObject(forKey: "fitness_last_sync")
@@ -161,12 +165,18 @@ struct navaApp: App {
                     await mapSearchService.fetchExplorerInterests()
                     // Wire offline action queue to auto-flush when connectivity is restored
                     OfflineActionQueue.shared.observeNetwork(networkMonitor)
+                    // Configure ad manager with premium status and fetch placements
+                    adManager.configure(isPremium: storeKitManager.isPremium)
+                    await adManager.fetchPlacements()
+                    await adManager.fetchBalances()
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     if newPhase == .active {
                         pushManager.clearBadge()
                         // Flush any pending offline actions when app becomes active
                         Task { await OfflineActionQueue.shared.flush() }
+                        // Retry any pending chat messages queued while offline
+                        Task { await flushPendingChatMessages() }
                     } else if newPhase == .background {
                         flService.scheduleBackgroundTraining()
                     }
@@ -177,6 +187,40 @@ struct navaApp: App {
                         NetworkMetrics.shared.resetCircuitBreaker()
                     }
                 }
+                .onChange(of: storeKitManager.isPremium) { _, isPremium in
+                    adManager.updatePremiumStatus(isPremium)
+                }
+        }
+    }
+}
+
+// MARK: - Pending Chat Flush
+
+extension navaApp {
+    /// Retries sending chat messages that were queued while offline.
+    private func flushPendingChatMessages() async {
+        let pending = MessageCacheService.shared.allPendingMessages()
+        guard !pending.isEmpty else { return }
+        NavLog.info("Flushing \(pending.count) pending chat messages", category: .network)
+
+        for message in pending {
+            do {
+                let mutation = """
+                mutation SendChatMessage($matchId: String!, $content: String!) {
+                    sendChatMessage(matchId: $matchId, content: $content) {
+                        id senderId receiverId content createdAt
+                    }
+                }
+                """
+                let _: [String: Any] = try await APIService.shared.graphQL(
+                    query: mutation,
+                    variables: ["matchId": message.matchId, "content": message.content]
+                )
+                MessageCacheService.shared.removePending(id: message.id)
+            } catch {
+                // Stop flushing on network error — will retry next time
+                break
+            }
         }
     }
 }

@@ -389,6 +389,9 @@ struct ReelsView: View {
     @State private var profileDetailReel: Reel?
     @State private var showInbox = false
     @State private var unreadReelMessages = 0
+    @EnvironmentObject var adManager: AdManager
+    @State private var reelViewCount = 0
+    @State private var showReelNativeAd = false
 
     var body: some View {
         ZStack {
@@ -550,7 +553,40 @@ struct ReelsView: View {
         }
         .onChange(of: currentIndex) { _, idx in
             pool.activate(currentIndex: idx ?? 0, urls: reels.map { $0.videoUrl })
+            // Show native ad after every 4 reels
+            reelViewCount += 1
+            if reelViewCount % 4 == 0 && adManager.shouldShowAd(placementId: AdManager.PlacementID.reelFeedNative) {
+                showReelNativeAd = true
+                pool.pauseAll()
+            }
         }
+        .overlay {
+            if showReelNativeAd {
+                ZStack {
+                    Color.black.opacity(0.85).ignoresSafeArea()
+                        .onTapGesture { dismissReelAd() }
+
+                    VStack(spacing: 16) {
+                        NativeAdCardView(placementId: AdManager.PlacementID.reelFeedNative)
+                            .padding(.horizontal, 24)
+
+                        Button {
+                            dismissReelAd()
+                        } label: {
+                            Text("Continue Watching")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 32)
+                                .padding(.vertical, 12)
+                                .background(AppColors.purpleAccent)
+                                .clipShape(Capsule())
+                        }
+                    }
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: showReelNativeAd)
         .onChange(of: feedScope) { _, _ in
             currentIndex = 0
             pool.reset()
@@ -566,6 +602,13 @@ struct ReelsView: View {
     private func handleProfileTap(reel: Reel) {
         profileDetailReel = reel
         showProfileDetail = true
+    }
+
+    private func dismissReelAd() {
+        showReelNativeAd = false
+        if let idx = currentIndex {
+            pool.activate(currentIndex: idx, urls: reels.map { $0.videoUrl })
+        }
     }
 
     private func fetchUnreadCount() async {

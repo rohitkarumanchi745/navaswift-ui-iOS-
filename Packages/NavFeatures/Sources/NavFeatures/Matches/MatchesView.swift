@@ -6,12 +6,14 @@ import NavServices
 struct MatchesView: View {
     @EnvironmentObject var auth: AuthManager
     @EnvironmentObject var storeKit: StoreKitManager
+    @EnvironmentObject var adManager: AdManager
     @State private var likedProfiles: [LikedProfile] = []
     @State private var sentLikes: [SentLikeProfile] = []
     @State private var isLoading = true
     @State private var isSentLoading = true
     @State private var errorMessage: String?
     @State private var selectedTab: LikesTab = .likedYou
+    private static var matchViewCounter = 0
 
     enum LikesTab: String, CaseIterable {
         case likedYou = "Liked You"
@@ -50,6 +52,35 @@ struct MatchesView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 10)
 
+                // Rewarded ad buttons (earn consumables)
+                if !storeKit.isPremium {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 10) {
+                            RewardedAdButton(
+                                placementId: AdManager.PlacementID.profileViewRewarded,
+                                label: "Reveal Likes",
+                                icon: "eye.fill"
+                            )
+                            RewardedAdButton(
+                                placementId: AdManager.PlacementID.boostRewarded,
+                                label: "Free Boost",
+                                icon: "bolt.fill"
+                            )
+                            RewardedAdButton(
+                                placementId: AdManager.PlacementID.superlikeRewarded,
+                                label: "Free Super Like",
+                                icon: "star.fill"
+                            )
+                            RewardedAdButton(
+                                placementId: AdManager.PlacementID.extraLikesRewarded,
+                                label: "Extra Likes",
+                                icon: "heart.fill"
+                            )
+                        }
+                        .padding(.horizontal, 20)
+                    }
+                }
+
                 // Tab toggle
                 tabToggle
                     .padding(.horizontal, 20)
@@ -67,6 +98,14 @@ struct MatchesView: View {
         .task {
             await fetchLikes()
             await fetchSentLikes()
+            await adManager.fetchBalances()
+
+            // Track match screen views for interstitial ads
+            Self.matchViewCounter += 1
+            if Self.matchViewCounter % 3 == 0 && adManager.shouldShowAd(placementId: AdManager.PlacementID.matchInterstitial) {
+                adManager.recordImpression(placementId: AdManager.PlacementID.matchInterstitial)
+                // When AdMob SDK is integrated, present interstitial ad here
+            }
         }
         .refreshable {
             if selectedTab == .likedYou {

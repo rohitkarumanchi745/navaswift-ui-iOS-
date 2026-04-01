@@ -28,6 +28,12 @@ public final class LocalCache {
 
     // MARK: - Encryption Key
 
+    /// Returns the shared cache encryption key. Used by other services (e.g. MessageCacheService)
+    /// that need to encrypt their own files with the same key.
+    public static func sharedEncryptionKey() -> SymmetricKey {
+        return loadOrCreateKey()
+    }
+
     /// Loads the existing encryption key from the Keychain, or generates and stores a new one.
     private static func loadOrCreateKey() -> SymmetricKey {
         let query: [String: Any] = [

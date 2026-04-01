@@ -5,6 +5,7 @@ import NavServices
 
 struct ConversationsView: View {
     @EnvironmentObject var auth: AuthManager
+    @EnvironmentObject var adManager: AdManager
     @State private var conversations: [MatchProfile] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -179,9 +180,19 @@ struct ConversationsView: View {
             }
             .padding(.top, 10)
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            BannerAdView(placementId: AdManager.PlacementID.chatBanner)
+        }
         .background(AppColors.darkBg)
         .navigationBarHidden(true)
-        .task { await fetchConversations() }
+        .task {
+            // Show cached conversation list instantly
+            if let cached = LocalCache.shared.loadStale([MatchProfile].self, forKey: .conversations), !cached.isEmpty {
+                conversations = cached
+                isLoading = false
+            }
+            await fetchConversations()
+        }
         .refreshable { await fetchConversations() }
     }
 

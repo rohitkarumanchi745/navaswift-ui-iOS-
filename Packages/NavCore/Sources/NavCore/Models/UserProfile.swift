@@ -270,7 +270,7 @@ public struct MatchProfile: Identifiable, Codable {
     }
 }
 
-public struct ChatMessage: Identifiable, Equatable {
+public struct ChatMessage: Identifiable, Equatable, Codable {
     public let id: String
     public let matchId: String
     public let senderId: Int
@@ -279,7 +279,7 @@ public struct ChatMessage: Identifiable, Equatable {
     public var createdAt: Date?
     public var status: MessageStatus
 
-    public enum MessageStatus: String {
+    public enum MessageStatus: String, Codable {
         case sending, sent, delivered, read
     }
 

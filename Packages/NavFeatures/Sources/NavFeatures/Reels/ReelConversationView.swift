@@ -1,6 +1,7 @@
 import SwiftUI
 import NavCore
 import NavNetworking
+import NavServices
 
 struct ReelConversationView: View {
     let reelId: String
@@ -48,7 +49,14 @@ struct ReelConversationView: View {
         .fullScreenCover(isPresented: $showMatchCelebration) {
             matchCelebrationOverlay
         }
-        .task { await fetchConversation() }
+        .task {
+            // Show cached reel thread instantly
+            if let cached = MessageCacheService.shared.loadReelThread(reelId: reelId, otherUserId: otherUserId), !cached.isEmpty {
+                messages = cached
+                isLoading = false
+            }
+            await fetchConversation()
+        }
     }
 
     // MARK: - Header
@@ -353,17 +361,38 @@ struct ReelConversationView: View {
     // MARK: - API Calls
 
     private func fetchConversation() async {
-        isLoading = true
+        if messages.isEmpty { isLoading = true }
+
+        // Delta sync: only fetch messages newer than the latest cached one
+        let sinceISO = MessageCacheService.shared.latestReelMessageISO(reelId: reelId, otherUserId: otherUserId)
+        var path = "/reels/conversation?reel_id=\(reelId)&other_user_id=\(otherUserId)"
+        if let sinceISO {
+            path += "&since=\(sinceISO)"
+        }
+
         do {
-            let response: ReelConversationResponse = try await APIService.shared.get(
-                path: "/reels/conversation?reel_id=\(reelId)&other_user_id=\(otherUserId)"
-            )
-            messages = response.messages
+            let response: ReelConversationResponse = try await APIService.shared.get(path: path)
             matchStatus = response.matchStatus
             canRequestMatch = response.canRequestMatch
             matchId = response.matchId
+
+            if sinceISO != nil && !response.messages.isEmpty {
+                // Delta: merge new messages into cached thread
+                MessageCacheService.shared.mergeReelThread(response.messages, reelId: reelId, otherUserId: otherUserId)
+                messages = MessageCacheService.shared.loadReelThread(reelId: reelId, otherUserId: otherUserId) ?? response.messages
+            } else if sinceISO == nil {
+                // Full fetch (no prior cache)
+                messages = response.messages
+                MessageCacheService.shared.saveReelThread(response.messages, reelId: reelId, otherUserId: otherUserId)
+            }
+            // If sinceISO != nil but response is empty, nothing new — keep existing messages
         } catch {
-            messages = []
+            // Keep cached messages if we have them, otherwise show empty
+            if messages.isEmpty {
+                if let cached = MessageCacheService.shared.loadReelThread(reelId: reelId, otherUserId: otherUserId) {
+                    messages = cached
+                }
+            }
         }
         isLoading = false
     }

@@ -27,6 +27,9 @@ struct DiscoverView: View {
     @State private var isSwipeAnimating = false
     @State private var isFetchingMore = false
     @State private var seenProfileIds: Set<String> = []
+    @EnvironmentObject var adManager: AdManager
+    @State private var swipeCount = 0
+    @State private var showNativeAd = false
 
     #if canImport(UIKit)
     private let screenWidth = UIScreen.main.bounds.width
@@ -326,6 +329,33 @@ struct DiscoverView: View {
             }
         }
         .animation(.easeInOut(duration: 0.3), value: showSuperLikeFeedback)
+        .overlay {
+            if showNativeAd {
+                ZStack {
+                    Color.black.opacity(0.6).ignoresSafeArea()
+                        .onTapGesture { showNativeAd = false }
+
+                    VStack(spacing: 16) {
+                        NativeAdCardView(placementId: AdManager.PlacementID.discoverNative)
+                            .padding(.horizontal, 24)
+
+                        Button {
+                            showNativeAd = false
+                        } label: {
+                            Text("Continue Swiping")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 32)
+                                .padding(.vertical, 12)
+                                .background(AppColors.purpleAccent)
+                                .clipShape(Capsule())
+                        }
+                    }
+                }
+                .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: showNativeAd)
         .sheet(isPresented: $showMessageSheet) {
             messageRequestSheet
         }
@@ -394,6 +424,12 @@ struct DiscoverView: View {
     private func handleSwipe(_ action: SwipeAction, profile: DiscoverProfile) {
         currentIndex += 1
         seenProfileIds.insert(profile.id)
+
+        // Show native ad after every 5 swipes
+        swipeCount += 1
+        if swipeCount % 5 == 0 && adManager.shouldShowAd(placementId: AdManager.PlacementID.discoverNative) {
+            showNativeAd = true
+        }
 
         // Prefetch next batch when 5 or fewer profiles remain
         if currentIndex >= profiles.count - 5 {

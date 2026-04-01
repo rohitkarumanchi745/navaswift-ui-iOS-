@@ -73,8 +73,8 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 - **Live upload preview** — tapping the thumbnail plays the filtered video alongside the music preview clip simultaneously before posting
 - **Cellular upload warning** — prompts confirmation before uploading on metered connections (cellular/hotspot)
 - **HLS processing state** — shows "Processing..." overlay with spinner for reels still being transcoded server-side
-- **Private messaging** on reels (Instagram-style DM via reel)
-- **Reel inbox** with conversation threads and unread count badge
+- **Private messaging** on reels (Instagram-style DM via reel) with offline cache for reel threads
+- **Reel inbox** with conversation threads, unread count badge, and banner ads
 - **Reel message composer** with reply context
 - **Reel activity feed** — full-screen activity list with filterable categories (All, Likes, Views, Messages, Creator Likes) fetched from `/reels/activity`
 - **Like creator** action from reel cards
@@ -88,10 +88,12 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 ### Chat & Communication
 - **Real-time WebSocket chat** with typing indicators and read receipts
 - **Real-time presence** — partner online status and last-seen timestamps derived from WebSocket connection state
-- **GraphQL-powered** message history with pagination
+- **GraphQL-powered** message history with pagination and delta sync (`since` parameter for incremental fetches)
+- **Offline chat** — messages cached per-conversation with AES-GCM encryption; conversations load instantly from cache before network refresh
+- **Offline send queue** — messages composed while offline are persisted to disk, displayed with a clock icon, and flushed automatically when connectivity is restored
 - **Message requests** with accept/decline flow
 - **Voice & video call** integration (WebRTC signaling via `CallManager`)
-- Conversation list with unread badges
+- Conversation list with unread badges and cache-first loading
 
 ### Push Notifications
 - **Notification Service Extension** — separate process intercepts push notifications before display to enrich with sender names and download profile photo / reel thumbnail media attachments
@@ -100,6 +102,16 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 - **Deep link prefetch** — app prefetches conversation/match data via GraphQL before navigating so the destination screen loads instantly
 - **Background fetch** — silent push prewarms badge counts via GraphQL `matches` query
 - **Token lifecycle** — device token registered on login, unregistered on logout
+
+### Ads & Monetization
+- **Backend-driven ad placements** — 10 placement types (native, banner, interstitial, rewarded) configured server-side with frequency caps, cooldowns, and AdMob unit IDs
+- **Native ads** — full-card ad placements in discover feed (every 5 swipes) and reel feed (every 4 reels) with dismissable overlays
+- **Banner ads** — slim bottom banners in chat conversation list and reel inbox
+- **Interstitial ads** — profile view and match screen impressions tracked at configurable thresholds
+- **Rewarded ads** — watch-to-earn for boosts, super likes, extra likes, and profile views with balance tracking
+- **Premium bypass** — premium subscribers never see ads (synced from StoreKit and backend)
+- **Frequency cap & cooldown** — per-placement hourly impression limits and minimum cooldown minutes enforced client-side
+- **Consumable balances** — real-time balance display for earned rewards (boosts, super likes, spotlights, extra likes, profile views)
 
 ### Premium (StoreKit 2)
 - **Gold, Platinum, Ultra** subscription tiers via Apple In-App Purchase
@@ -155,10 +167,12 @@ A full-featured dating app built with **SwiftUI** and connected to a **Rust/Axum
 - **Push notification** management with actionable categories, inline reply, deep link prefetch, and background fetch
 - **Notification Service Extension** for rich media push notifications
 - **Local caching** with AES-GCM encryption for offline data persistence (including reel activity fallback)
+- **Message cache** — per-conversation encrypted message storage with offline send queue, delta sync timestamps, and reel thread caching
 - **Profile cache** — profile data cached on disk with TTL, loads instantly before network refresh
 - **Discover cache** — cache-first loading for discover feed with background refresh
 - **Matches cache** — cached match list for instant display on launch
 - **Offline action queue** — swipes/likes/passes persisted to disk when offline, auto-flushed on reconnection (24-hour expiry)
+- **Pending chat flush** — queued offline messages automatically retried on app foreground and network restore
 - **Upload retry** — failed reel uploads can be retried without re-processing
 - **Disk space awareness** — video caching skipped below 100MB free space
 - **Audio session management** with Bluetooth routing for calls, reels, and media
@@ -208,7 +222,8 @@ nava/
 │   │       │   ├── MusicTasteModels.swift      # Music taste sync, compatibility
 │   │       │   ├── OutdoorModels.swift         # Outdoor spots, visits, seasonal guides
 │   │       │   ├── SocialModels.swift          # Spots, playgrounds, events
-│   │       │   └── StravaModels.swift          # Strava auth, activities, routes
+│   │       │   ├── StravaModels.swift          # Strava auth, activities, routes
+│   │       │   └── AdModels.swift             # Ad placement, impression, reward, balance models
 │   │       ├── Theme/
 │   │       │   └── AppTheme.swift             # Colors, typography, spacing tokens
 │   │       ├── UI/
@@ -249,7 +264,9 @@ nava/
 │   │       ├── OfflineActionQueue.swift       # Offline swipe queue with auto-flush
 │   │       ├── OutdoorService.swift           # Outdoor spots CRUD and visit logging
 │   │       ├── SpotifyAuthManager.swift       # Spotify OAuth PKCE flow
-│   │       └── StravaAuthManager.swift        # Strava OAuth flow
+│   │       ├── StravaAuthManager.swift        # Strava OAuth flow
+│   │       ├── AdManager.swift               # Ad placement manager with frequency caps, impressions, rewards
+│   │       └── MessageCacheService.swift     # Encrypted per-conversation message cache + offline send queue
 │   │
 │   └── NavFeatures/                   # All UI views
 │       └── Sources/NavFeatures/
@@ -322,6 +339,8 @@ nava/
 │           │   ├── EnrollmentProofView.swift         # Enrollment document upload
 │           │   ├── ProfessionalVerificationView.swift # Professional verification
 │           │   └── VoiceIntroView.swift              # Voice intro recording
+│           ├── Ads/
+│           │   └── AdViews.swift             # Native, banner, interstitial, rewarded ad components
 │           ├── AI/
 │           │   └── AIInsightsView.swift       # AI match insights with compatibility
 │           └── Legal/
@@ -430,6 +449,7 @@ Configure in `Packages/NavNetworking/Sources/NavNetworking/AppConfig.swift`.
 | Contact Sync | `/contacts/sync` | POST |
 | Federated Learning | `/fl/register`, `/fl/round`, `/fl/update` | GET, POST |
 | Map Search | `/map/search`, `/map/trending`, `/map/interests` | GET, POST |
+| Ads | `/ads/placements`, `/ads/impression`, `/ads/rewarded/complete`, `/ads/balances` | GET, POST |
 | Payments | `/api/payments/verify-apple` | POST |
 | Location | `/location/update` | POST |
 | Verification | `/verify/selfie`, `/student/verify`, `/student/verify-id` | POST |
