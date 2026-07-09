@@ -457,6 +457,20 @@ Configure in `Packages/NavNetworking/Sources/NavNetworking/AppConfig.swift`.
 | Prefetch | GraphQL `conversation`, `match-detail` | POST |
 | Account | `/account/delete` | POST |
 
+## On-Device AI (NavAI)
+
+The `Packages/NavAI` package adds on-device chat suggestions and personalization:
+
+- **BitNet b1.58-2B-4T** chat suggestions via a bitnet.cpp C FFI bridge — works offline
+- **Hybrid** `SuggestionEngine` (server → on-device → templates)
+- **Personalization** — retrieval of the user's own past messages (voice matching)
+  plus a per-user LoRA adapter applied at inference
+- **Harrier embeddings** (`microsoft/harrier-oss-v1-0.6b`) on-device via the same bridge
+
+Setup: run `Packages/NavAI/scripts/build-bitnet-ios.sh` once to build the native
+xcframework, then add NavAI as a local package. See
+**[AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)** for the rationale and architecture fit.
+
 ## License
 
 Private - All rights reserved.
