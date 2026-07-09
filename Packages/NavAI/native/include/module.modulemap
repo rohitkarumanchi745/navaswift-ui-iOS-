@@ -1,0 +1,4 @@
+module BitNetCore {
+    header "nava_bitnet.h"
+    export *
+}
